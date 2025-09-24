@@ -650,15 +650,8 @@ function buildEip1193Request(
           throw new Error("eth_sign requires a message to sign");
         }
 
-        // Check if we have a signer configured
-        if (!config?.sendOptions?.signer) {
-          throw new Error("eth_sign requires a signer to be configured");
-        }
-
-        const tronAddress = tronBase58FromEvm(tw, address0x);
-
         try {
-          // Use TronWeb's sign method
+          // Use TronWeb's sign method directly
           const signature = await tw.trx.sign(message);
           return to0x(signature);
         } catch (error) {
@@ -970,21 +963,59 @@ async function handleEthSendTransaction(
     const options: Record<string, any> = { feeLimit };
     if (permissionId != null) options.permissionId = permissionId;
     if (valueSun > 0) options.callValue = valueSun;
+    // Handle Ethereum ABI-encoded data
     const rawParameter = strip0x(dataHex);
-    if (rawParameter.length > 0) options.rawParameter = rawParameter;
-    const trigger = await tw.transactionBuilder.triggerSmartContract(
-      contractBase58,
-      "",
-      options,
-      [],
-      sender.base58,
-    );
-    if (!trigger?.transaction || trigger?.result?.result === false) {
-      const message = extractTronErrorMessage(trigger);
-      const reason = message ?? "failed to build Tron transaction";
-      throw new Error(`eth_sendTransaction preparation failed: ${reason}`);
+    if (rawParameter.length > 0) {
+      // For TRC-20 transfers, we need to convert addresses in the parameters
+      // Ethereum encodes: functionSelector(4) + address(32) + amount(32)
+      if (rawParameter.length >= 68 && rawParameter.startsWith('a9059cbb')) { // transfer(address,uint256)
+        // Extract the address (bytes 4-35, but take last 20 bytes)
+        const addressHex = rawParameter.substring(32, 72); // Skip selector + padding
+        const amountHex = rawParameter.substring(72, 136);
+
+        // Convert 0x address back to Tron format for the parameter
+        const ethAddress = `0x${addressHex}`;
+        const tronRecipient = tronBase58FromEvm(tw, ethAddress as Address);
+
+        // Use TronWeb's contract interface for proper encoding
+        const trigger = await tw.transactionBuilder.triggerSmartContract(
+          contractBase58,
+          "transfer(address,uint256)",
+          options,
+          [
+            { type: 'address', value: tronRecipient },
+            { type: 'uint256', value: `0x${amountHex}` }
+          ],
+          sender.base58,
+        );
+
+        if (!trigger?.transaction || trigger?.result?.result === false) {
+          const message = extractTronErrorMessage(trigger);
+          const reason = message ?? "failed to build Tron transaction";
+          throw new Error(`eth_sendTransaction preparation failed: ${reason}`);
+        }
+        transaction = trigger.transaction;
+      } else {
+        // For other contract calls, use raw parameter (might need more specific handling)
+        options.rawParameter = rawParameter;
+        const trigger = await tw.transactionBuilder.triggerSmartContract(
+          contractBase58,
+          "",
+          options,
+          [],
+          sender.base58,
+        );
+
+        if (!trigger?.transaction || trigger?.result?.result === false) {
+          const message = extractTronErrorMessage(trigger);
+          const reason = message ?? "failed to build Tron transaction";
+          throw new Error(`eth_sendTransaction preparation failed: ${reason}`);
+        }
+        transaction = trigger.transaction;
+      }
+    } else {
+      throw new Error("Contract interaction requires data payload");
     }
-    transaction = trigger.transaction;
   } else {
     if (!txRequest.to)
       throw new Error(
