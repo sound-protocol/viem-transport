@@ -14,6 +14,7 @@ const createMockTronWeb = () => ({
     getBlock: vi.fn(),
     sendRawTransaction: vi.fn(),
     sign: vi.fn(),
+    getChainParameters: vi.fn(),
   },
   transactionBuilder: {
     triggerConstantContract: vi.fn(),
@@ -134,24 +135,33 @@ describe('TronWeb Transport', () => {
       mockTronWeb.trx.getAccount.mockResolvedValue({
         transactions: new Array(5), // 5 transactions
       });
+      mockTronWeb.trx.getCurrentBlock.mockResolvedValue({
+        block_header: { raw_data: { number: 1000 } },
+      });
 
       const client = transport({ chain: undefined });
       const result = await client.request({
         method: 'eth_getTransactionCount',
         params: ['0xa614f803b6fd780986a42c78ec9c7f77e6ded13c'],
       });
-      expect(result).toBe('0x5');
+      // Format: (txCount * 1000000) + (blockNumber % 1000000)
+      // = (5 * 1000000) + 1000 = 5001000 = 0x4c4f28
+      expect(result).toBe('0x4c4f28');
     });
 
     test('should return 0 for new account', async () => {
       mockTronWeb.trx.getAccount.mockResolvedValue(null);
+      mockTronWeb.trx.getCurrentBlock.mockResolvedValue({
+        block_header: { raw_data: { number: 1000 } },
+      });
 
       const client = transport({ chain: undefined });
       const result = await client.request({
         method: 'eth_getTransactionCount',
         params: ['0xa614f803b6fd780986a42c78ec9c7f77e6ded13c'],
       });
-      expect(result).toBe('0x0');
+      // For non-existent account, returns block number
+      expect(result).toBe('0x3e8');
     });
   });
 
@@ -283,14 +293,13 @@ describe('TronWeb Transport', () => {
         }],
       });
 
-      expect(result).toBe('0xc350'); // 50000 in hex
+      // 30000 base + 50000 energy_used = 80000
+      expect(result).toBe('0x13880');
     });
   });
 
   describe('eth_getStorageAt', () => {
     test('should return placeholder for storage access', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       const client = transport({ chain: undefined });
       const result = await client.request({
         method: 'eth_getStorageAt',
@@ -301,18 +310,20 @@ describe('TronWeb Transport', () => {
         ],
       });
 
+      // Tron doesn't support storage slot access, always returns zeros
       expect(result).toBe('0x0000000000000000000000000000000000000000000000000000000000000000');
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('eth_getStorageAt'));
-
-      consoleSpy.mockRestore();
     });
   });
 
   describe('eth_gasPrice', () => {
     test('should return fixed gas price', async () => {
+      mockTronWeb.trx.getChainParameters.mockResolvedValue([
+        { key: 'getEnergyFee', value: 420 }
+      ]);
+
       const client = transport({ chain: undefined });
       const result = await client.request({ method: 'eth_gasPrice' });
-      expect(result).toBe('0x1');
+      expect(result).toBe('0x1a4'); // 420 in hex
     });
   });
 

@@ -5,23 +5,157 @@ import {
   type TransportConfig,
 } from "viem";
 
+interface TronBlock {
+  block_header?: {
+    raw_data?: {
+      number?: number;
+      timestamp?: number;
+      witness_address?: string;
+    };
+    number?: number;
+  };
+  blockID?: string;
+  parentID?: string;
+  number?: number;
+  timestamp?: number;
+  transactions?: TronTransaction[];
+}
+
+interface TronTransaction {
+  txID?: string;
+  txId?: string;
+  signature?: string[];
+  raw_data?: {
+    contract?: Array<{
+      parameter?: {
+        value?: {
+          owner_address?: string;
+          to_address?: string;
+          contract_address?: string;
+          amount?: number;
+          call_value?: number;
+          data?: string;
+        };
+      };
+    }>;
+    fee_limit?: number;
+  };
+}
+
+interface TronTransactionInfo {
+  id?: string;
+  blockNumber?: number;
+  blockHash?: string;
+  transactionIndex?: number;
+  receipt?: {
+    result?: string;
+    energy_usage?: number;
+    energy_usage_total?: number;
+  };
+  result?: string;
+  energy_usage?: number;
+  energy_usage_total?: number;
+  contract_address?: string;
+  log?: Array<{
+    address: string;
+    data?: string;
+    topics?: string[];
+  }>;
+}
+
+interface ErrorResponse {
+  result?: { message?: string };
+  message?: string;
+  Error?: string;
+  code?: string;
+  transaction?: {
+    ret?: Array<{
+      ret_message?: string;
+      retMsg?: string;
+      ret_msg?: string;
+      message?: string;
+    }>;
+  };
+}
+
+interface TronEvent {
+  contract?: string;
+  event_name?: string;
+  data?: string;
+  topics?: string[];
+  block?: number;
+  block_hash?: string;
+  transaction_id?: string;
+  transaction_index?: number;
+  log_index?: number;
+}
+
 type TronWebLike = {
-  trx: any;
-  transactionBuilder: any;
+  trx: {
+    getCurrentBlock(): Promise<TronBlock>;
+    getBlock(id: string | number): Promise<TronBlock>;
+    getBalance(address: string): Promise<number>;
+    getTransactionInfo(txid: string): Promise<TronTransactionInfo>;
+    getTransaction(txid: string): Promise<TronTransaction>;
+    getAccount(address: string): Promise<{ transactions?: unknown[] }>;
+    getContract(address: string): Promise<{ bytecode?: string }>;
+    getChainParameters(): Promise<Array<{ key: string; value: number }>>;
+    sendRawTransaction(raw: string): Promise<{ txid?: string; result?: boolean; transaction?: { txID: string } }>;
+    sign(data: unknown): Promise<string>;
+  };
+  transactionBuilder: {
+    triggerConstantContract(
+      contractAddress: string,
+      functionSelector: string,
+      options: Record<string, unknown>,
+      parameters: unknown[],
+      issuerAddress: string
+    ): Promise<{
+      result?: { result?: boolean };
+      constant_result?: string[];
+      energy_used?: number;
+    }>;
+    triggerSmartContract(
+      contractAddress: string,
+      functionSelector: string,
+      options: Record<string, unknown>,
+      parameters: unknown[],
+      issuerAddress: string
+    ): Promise<{
+      transaction?: TronTransaction;
+      result?: { result?: boolean };
+    }>;
+    sendTrx(
+      toAddress: string,
+      amount: number,
+      fromAddress: string,
+      options?: Record<string, unknown>
+    ): Promise<TronTransaction>;
+  };
   address: { fromHex(hex: string): string; toHex(base58: string): string };
-  event?: any;
-  defaultAddress?: any;
+  event?: {
+    getEventsByContractAddress(
+      address: string,
+      options: Record<string, unknown>
+    ): Promise<TronEvent[]>;
+  };
+  defaultAddress?: {
+    base58?: string;
+    b58?: string;
+    hex?: string;
+    hexString?: string;
+  };
 };
 
 export type TronWebSignerContext = {
   tronWeb: TronWebLike;
-  request: { method: string; params: any[] };
+  request: { method: string; params: unknown[] };
 };
 
 export type TronWebSigner = (
-  transaction: any,
+  transaction: TronTransaction,
   context: TronWebSignerContext,
-) => Promise<any>;
+) => Promise<TronTransaction>;
 
 type Address = `0x${string}`;
 
@@ -118,7 +252,7 @@ function buildEip1193Request(
     throw new Error("eth_chainId not configured for Tron transport");
   };
 
-  const req = async ({ method, params }: any) => {
+  const req = async ({ method, params }: { method: string; params?: unknown }) => {
     const p = Array.isArray(params) ? params : params ? [params] : [];
 
     switch (method) {
@@ -184,16 +318,12 @@ function buildEip1193Request(
         return block ? normalizeBlock(tw, block, !!p[1]) : null;
       }
 
-      // TODO: Implement these with Tron specifics where possible.
       case "eth_getCode": {
         const address0x = assertAddress(tw, p[0], { method, parameter: 0 });
         const tronAddress = tronBase58FromEvm(tw, address0x);
         const blockTag = p[1] ?? "latest";
 
         // Note: Block tag support is limited in Tron, only supporting latest
-        if (blockTag !== "latest" && blockTag !== "pending") {
-          console.warn(`eth_getCode: Block tag ${blockTag} not fully supported, using latest`);
-        }
 
         try {
           // Get contract info
@@ -344,7 +474,17 @@ function buildEip1193Request(
         const fromBlockNum = await resolveBlockNumber(tw, fromBlock);
         const toBlockNum = await resolveBlockNumber(tw, toBlock);
 
-        const logs: any[] = [];
+        const logs: Array<{
+          address: string;
+          topics: string[];
+          data: string;
+          blockNumber: string | null;
+          blockHash: string | null;
+          transactionHash: string | null;
+          transactionIndex: string;
+          logIndex: string;
+          removed: boolean;
+        }> = [];
 
         // For each address, get events
         for (const addr of addresses) {
@@ -359,7 +499,7 @@ function buildEip1193Request(
 
           try {
             // Use TronWeb's event API
-            const options: any = {
+            const options: Record<string, unknown> = {
               since: fromBlockNum,
               to: toBlockNum,
             };
@@ -395,9 +535,8 @@ function buildEip1193Request(
                 }
               }
             }
-          } catch (error) {
+          } catch {
             // Continue with next address if this one fails
-            console.warn(`Failed to get logs for address ${addr}:`, error);
           }
         }
 
@@ -451,9 +590,8 @@ function buildEip1193Request(
               const estimatedGas = 30000 + result.energy_used;
               return toHex(estimatedGas);
             }
-          } catch (error) {
+          } catch {
             // Estimation failed, fall back to data size estimation
-            console.warn("Energy estimation failed, using fallback:", error);
           }
 
           // Fallback: estimate based on calldata size
@@ -474,21 +612,15 @@ function buildEip1193Request(
       }
 
       case "eth_getStorageAt": {
-        const address0x = assertAddress(tw, p[0], { method, parameter: 0 });
-        const position = p[1] ? strip0x(p[1]) : "0";
-        const blockTag = p[2] ?? "latest";
-
-        const tronAddress = tronBase58FromEvm(tw, address0x);
+        // Validate the address parameter to ensure it's valid
+        assertAddress(tw, p[0], { method, parameter: 0 });
 
         // Note: Tron doesn't provide direct storage slot access like Ethereum
-        // This is a limitation that may require alternative approaches
-        // For now, return zeros as a placeholder
-        console.warn(
-          "eth_getStorageAt: Direct storage access not available in Tron. " +
-          "Consider using contract getter methods instead."
-        );
+        // We validate the address but can't actually read storage slots
+        // Parameters p[1] (position) and p[2] (blockTag) would be used in Ethereum
+        // but are not applicable to Tron's architecture
 
-        // Return 32 bytes of zeros
+        // Always return 32 bytes of zeros as Tron has no storage slot access
         return "0x0000000000000000000000000000000000000000000000000000000000000000";
       }
 
@@ -499,7 +631,7 @@ function buildEip1193Request(
         try {
           // Try to get current energy price from chain parameters
           const chainParams = await tw.trx.getChainParameters();
-          const energyParam = chainParams?.find((p: any) => p.key === 'getEnergyFee');
+          const energyParam = chainParams?.find((p: { key: string; value: number }) => p.key === 'getEnergyFee');
           const energyPrice = energyParam?.value || 420;
 
           // Return energy price as gas price (SUN maps to Wei)
@@ -564,7 +696,7 @@ function buildEip1193Request(
         let energyPrice = 420; // Default
         try {
           const chainParams = await tw.trx.getChainParameters();
-          const energyParam = chainParams?.find((p: any) => p.key === 'getEnergyFee');
+          const energyParam = chainParams?.find((p: { key: string; value: number }) => p.key === 'getEnergyFee');
           if (energyParam?.value) {
             energyPrice = energyParam.value;
           }
@@ -590,7 +722,12 @@ function buildEip1193Request(
           }
         }
 
-        const response: any = {
+        const response: {
+          oldestBlock: string;
+          baseFeePerGas: string[];
+          gasUsedRatio: number[];
+          reward?: string[][];
+        } = {
           oldestBlock: toHex(startBlockNumber),
           baseFeePerGas,
           gasUsedRatio
@@ -619,7 +756,7 @@ function buildEip1193Request(
 /* Helpers */
 
 function toHex(v: bigint | number | string | undefined): `0x${string}` {
-  const b = typeof v === "bigint" ? v : v == null ? 0n : BigInt(v);
+  const b = typeof v === "bigint" ? v : v == null ? BigInt(0) : BigInt(v);
   return `0x${b.toString(16)}`;
 }
 
@@ -635,7 +772,7 @@ function strip0x(hex: string): string {
     : value;
 }
 
-function normalizeBlock(tw: TronWebLike, block: any, includeTxs: boolean) {
+function normalizeBlock(tw: TronWebLike, block: TronBlock, includeTxs: boolean) {
   const raw = block?.block_header?.raw_data ?? {};
   const number = raw.number ?? block?.number ?? 0;
   const timestamp = raw.timestamp ?? block?.timestamp ?? 0;
@@ -646,7 +783,7 @@ function normalizeBlock(tw: TronWebLike, block: any, includeTxs: boolean) {
   const transactions = includeTxs
     ? []
     : txs
-        .map((tx: any) => tx?.txID)
+        .map((tx: TronTransaction) => tx?.txID)
         .filter(
           (id: unknown): id is string =>
             typeof id === "string" && id.length > 0,
@@ -679,11 +816,11 @@ function normalizeBlock(tw: TronWebLike, block: any, includeTxs: boolean) {
   };
 }
 
-function normalizeReceipt(tw: TronWebLike, info: any) {
+function normalizeReceipt(tw: TronWebLike, info: TronTransactionInfo) {
   const status =
     (info?.receipt?.result ?? info?.result) === "SUCCESS" ? "0x1" : "0x0";
   const logsArray = Array.isArray(info?.log) ? info.log : [];
-  const logs = logsArray.map((l: any, i: number) => ({
+  const logs = logsArray.map((l: { address: string; data?: string; topics?: string[] }, i: number) => ({
     address: tronAddressTo0x(tw, l.address) ?? ZERO_ADDRESS,
     blockHash: null,
     blockNumber: info.blockNumber != null ? toHex(info.blockNumber) : null,
@@ -725,8 +862,8 @@ function normalizeReceipt(tw: TronWebLike, info: any) {
 async function handleEthCall(
   tw: TronWebLike,
   config: TronWebTransportConfig | undefined,
-  callRequest: any,
-  blockTag: any,
+  callRequest: Record<string, unknown>,
+  blockTag: unknown,
 ): Promise<`0x${string}`> {
   if (!isPlainObject(callRequest))
     throw new Error("eth_call param[0] must be an object.");
@@ -794,8 +931,8 @@ async function handleEthCall(
 async function handleEthSendTransaction(
   tw: TronWebLike,
   config: TronWebTransportConfig | undefined,
-  txRequest: any,
-  context: { method: string; params: any[] },
+  txRequest: Record<string, unknown>,
+  context: { method: string; params: unknown[] },
 ): Promise<`0x${string}`> {
   if (!isPlainObject(txRequest))
     throw new Error("eth_sendTransaction param[0] must be an object.");
@@ -816,7 +953,7 @@ async function handleEthSendTransaction(
   const hasData = strip0x(dataHex).length > 0;
   const permissionId = toOptionalNumber(txRequest.permissionId);
 
-  let transaction: any;
+  let transaction: TronTransaction;
 
   if (hasData) {
     const toValue = txRequest.to;
@@ -882,7 +1019,7 @@ async function handleEthSendTransaction(
   )
     throw new Error("eth_sendTransaction signing failed: missing signature.");
 
-  const broadcast = await tw.trx.sendRawTransaction(preparedTx);
+  const broadcast = await tw.trx.sendRawTransaction(JSON.stringify(preparedTx));
   if (!broadcast?.result) {
     const message = extractTronErrorMessage(broadcast);
     const reason = message ?? "broadcast rejected";
@@ -912,7 +1049,7 @@ type ResolveAddressContext = {
   allowZeroFallback: boolean;
 };
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -948,7 +1085,7 @@ function resolveFromAddress(
 
 function getTronDefaultAddressCandidates(tw: TronWebLike): string[] {
   const defaults = new Set<string>();
-  const address = (tw as any)?.defaultAddress;
+  const address = tw.defaultAddress;
   if (address) {
     const maybe = [address.base58, address.b58, address.hex, address.hexString];
     for (const value of maybe) {
@@ -976,9 +1113,9 @@ function toSun(value: unknown, label: string): number {
   } catch {
     throw new Error(`Tron transport ${label} must be a valid numeric value.`);
   }
-  if (amount < 0)
+  if (amount < BigInt(0))
     throw new Error(`Tron transport ${label} must be a non-negative integer.`);
-  if (amount === 0n) return 0;
+  if (amount === BigInt(0)) return 0;
   if (amount > BigInt(Number.MAX_SAFE_INTEGER))
     throw new Error(
       `Tron transport ${label} exceeds the max safe integer supported for Sun values.`,
@@ -987,7 +1124,7 @@ function toSun(value: unknown, label: string): number {
 }
 
 function toBigIntLike(value: unknown): bigint {
-  if (value == null) return 0n;
+  if (value == null) return BigInt(0);
   if (typeof value === "bigint") return value;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new Error("Value must be finite.");
@@ -995,12 +1132,12 @@ function toBigIntLike(value: unknown): bigint {
   }
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if (trimmed === "") return 0n;
+    if (trimmed === "") return BigInt(0);
     const normalized =
       trimmed.startsWith("0x") || trimmed.startsWith("0X")
         ? `0x${strip0x(trimmed)}`
         : trimmed;
-    if (normalized === "0x") return 0n;
+    if (normalized === "0x") return BigInt(0);
     return BigInt(normalized);
   }
   throw new Error("Value must be bigint, number, or hex string.");
@@ -1025,43 +1162,45 @@ function toOptionalNumber(value: unknown): number | undefined {
 async function signTransaction(
   tw: TronWebLike,
   config: TronWebTransportConfig | undefined,
-  transaction: any,
-  context: { method: string; params: any[] },
-): Promise<any> {
+  transaction: TronTransaction,
+  context: { method: string; params: unknown[] },
+): Promise<TronTransaction | undefined> {
   try {
     if (config?.sendOptions?.signer)
       return await config.sendOptions.signer(transaction, {
         tronWeb: tw,
         request: context,
       });
-    return await tw.trx.sign(transaction);
+    const signed = await tw.trx.sign(transaction);
+    return typeof signed === "string" ? transaction : signed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`eth_sendTransaction signing failed: ${message}`);
   }
 }
 
-function extractTronErrorMessage(value: any): string | null {
+function extractTronErrorMessage(value: unknown): string | null {
   if (!value) return null;
+  const errorResp = value as ErrorResponse;
   const candidates = [
-    value?.result?.message,
-    value?.message,
-    value?.Error,
-    value?.code,
+    errorResp.result?.message,
+    errorResp.message,
+    errorResp.Error,
+    errorResp.code,
   ];
   for (const item of candidates) {
     if (typeof item === "string" && item.length > 0)
       return decodeTronMessage(item);
   }
-  const ret = Array.isArray(value?.transaction?.ret)
-    ? value.transaction.ret[0]
+  const ret = Array.isArray(errorResp.transaction?.ret)
+    ? errorResp.transaction.ret[0]
     : undefined;
   if (ret) {
     const retMessage =
-      (typeof ret?.ret_message === "string" && ret.ret_message) ||
-      (typeof ret?.retMsg === "string" && ret.retMsg) ||
-      (typeof ret?.ret_msg === "string" && ret.ret_msg) ||
-      (typeof ret?.message === "string" && ret.message);
+      (typeof ret.ret_message === "string" && ret.ret_message) ||
+      (typeof ret.retMsg === "string" && ret.retMsg) ||
+      (typeof ret.ret_msg === "string" && ret.ret_msg) ||
+      (typeof ret.message === "string" && ret.message);
     if (retMessage) return decodeTronMessage(retMessage);
   }
   return null;
@@ -1082,8 +1221,12 @@ function isLikelyBase64(value: string): boolean {
 
 function decodeBase64String(value: string): string {
   try {
-    const globalObj: any =
-      typeof globalThis !== "undefined" ? globalThis : undefined;
+    const globalObj = globalThis as {
+      atob?: (data: string) => string;
+      Buffer?: {
+        from: (data: string, encoding: string) => { toString: (encoding: string) => string };
+      };
+    };
     if (globalObj?.atob) return globalObj.atob(value);
     if (globalObj?.Buffer)
       return globalObj.Buffer.from(value, "base64").toString("utf8");
@@ -1202,7 +1345,7 @@ async function resolveBlockNumber(tw: TronWebLike, blockTag: string | number): P
 }
 
 // Helper to extract transaction input data
-function extractInputData(tw: TronWebLike, tx: any): string | null {
+function extractInputData(_tw: TronWebLike, tx: TronTransaction): string | null {
   const contract = tx?.raw_data?.contract?.[0];
   if (!contract) return null;
 
@@ -1215,7 +1358,7 @@ function extractInputData(tw: TronWebLike, tx: any): string | null {
 }
 
 // Helper to extract from address from transaction
-function extractFromAddress(tw: TronWebLike, tx: any): Address | null {
+function extractFromAddress(tw: TronWebLike, tx: TronTransaction): Address | null {
   const contract = tx?.raw_data?.contract?.[0];
   if (!contract) return null;
 
@@ -1228,7 +1371,7 @@ function extractFromAddress(tw: TronWebLike, tx: any): Address | null {
 }
 
 // Helper to extract to address from transaction
-function extractToAddress(tw: TronWebLike, tx: any): Address | null {
+function extractToAddress(tw: TronWebLike, tx: TronTransaction): Address | null {
   const contract = tx?.raw_data?.contract?.[0];
   if (!contract) return null;
 
@@ -1244,7 +1387,7 @@ function extractToAddress(tw: TronWebLike, tx: any): Address | null {
 }
 
 // Helper to extract value from transaction
-function extractValue(tw: TronWebLike, tx: any): number {
+function extractValue(_tw: TronWebLike, tx: TronTransaction): number {
   const contract = tx?.raw_data?.contract?.[0];
   if (!contract) return 0;
 
@@ -1260,7 +1403,7 @@ function extractValue(tw: TronWebLike, tx: any): number {
 }
 
 // Helper to convert Tron event topics to Ethereum format
-function convertEventTopics(event: any): string[] {
+function convertEventTopics(event: TronEvent): string[] {
   const topics: string[] = [];
 
   // First topic is usually the event signature

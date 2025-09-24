@@ -9,7 +9,7 @@
 
 import { TronWeb } from "tronweb";
 import { createPublicClient, erc20Abi } from "viem";
-import { tronWeb } from "./tronWeb.ts";
+import { tronWeb } from "./tronWeb";
 
 async function main() {
   // Configure TronWeb (replace with your endpoint)
@@ -32,46 +32,71 @@ async function main() {
   // Example: get TRX balance for an address (pass 0x-hex or base58 T-address).
   // Note: On Tron, balances are denominated in SUN (1 TRX = 1e6 SUN).
   // Replace with a valid Tron address.
-  const tronAddressBase58 = "TZFbTfFZJkqdDge8CkvZSyT7KgiJafYVTL"; // placeholder
-  const someAddress = `0x${TronWeb.address
-    .toHex(tronAddressBase58)
-    .replace(/^0x/i, "")
-    .slice(-40)}` as const;
+  const someAddress = "TKHuVq1oKVruCGLvqVexFs6dawKv6fQgFs"; // placeholder
   try {
     const balance = await client.request({
       method: "eth_getBalance",
       params: [someAddress, "latest"],
     });
-    console.log("eth_getBalance:", balance);
+    console.log(`\nTRX Balance for ${someAddress}:`);
+    console.log("  Hex:", balance);
+    const balanceInSun = parseInt(balance as string, 16);
+    const balanceInTRX = balanceInSun / 1_000_000;
+    console.log(`  SUN: ${balanceInSun.toLocaleString()}`);
+    console.log(`  TRX: ${balanceInTRX.toFixed(6)}`);
   } catch (err) {
     console.warn("Balance call failed (replace address with a real one):", err);
   }
 
-  // Example: constant contract call (replace with a real TRC-20 contract + data).
+  // Example 1: Direct eth_call - USDT on Tron mainnet
   try {
-    const callResult = await client.readContract({
-      address: "0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C",
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      // args: ["TUhaNYZWmQ887dZ5faufhsSvxR695Lw7Po"],
-      args: ["0xCD7592DB054Da46198E5311Ef5d13F087c1ee818"],
+    const callResult = await client.request({
+      method: "eth_call",
+      params: [
+        {
+          to: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", // USDT contract on Tron
+          data: "0x18160ddd", // totalSupply()
+        },
+        "latest",
+      ],
     });
-    // const callResult = await client.request({
-    //   method: "eth_call",
-    //   params: [
-    //     {
-    //       to: "TTOKENCONTRACTADDRESSPLACEHOLDER12345", // base58 or 0x
-    //       data: "0x18160ddd", // e.g. totalSupply()
-    //     },
-    //     "latest",
-    //   ],
-    // });
-    console.log("eth_call balance():", callResult);
+    console.log("USDT totalSupply (eth_call):", callResult);
   } catch (err) {
-    console.warn(
-      "Contract call failed (replace contract/data with a real example):",
-      err,
-    );
+    console.warn("eth_call failed:", err);
+  }
+
+  // Example 2: Using viem's readContract with erc20Abi
+  // This shows how to use typed contract calls
+  try {
+    // For readContract to work, we need to pass the address in 0x format
+    // USDT on Tron: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
+    const balance = await client.request({
+      method: "eth_call",
+      params: [
+        {
+          to: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", // USDT
+          // balanceOf(TJDENsfBJs4RFETt1X1W8wMDc8M5XnJhCe)
+          data: "0x70a08231" + "0000000000000000000000005a67fa7cc56bd6d043a98e17d329c1dc9e14753f",
+        },
+        "latest",
+      ],
+    });
+    console.log("\nUSDT balance for TJDENsfBJs4RFETt1X1W8wMDc8M5XnJhCe:");
+    console.log("  Hex:", balance);
+    const usdtBalance = parseInt(balance as string, 16);
+    const usdtReadable = usdtBalance / 1_000_000; // USDT has 6 decimals
+    console.log(`  Raw: ${usdtBalance.toLocaleString()}`);
+    console.log(`  USDT: ${usdtReadable.toFixed(6)}`);
+
+    // Note: readContract with erc20Abi would work like this if viem fully supported our transport:
+    // const typedBalance = await client.readContract({
+    //   address: "0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C", // Contract in 0x format
+    //   abi: erc20Abi,
+    //   functionName: "balanceOf",
+    //   args: ["0x5a67fa7cc56bd6d043a98e17d329c1dc9e14753f"], // Address in 0x format
+    // });
+  } catch (err) {
+    console.warn("Contract call failed:", err);
   }
 
   // Example outline for sending a transaction (requires signing capability & funded account).
