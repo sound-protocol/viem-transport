@@ -217,21 +217,37 @@ function buildEip1193Request(
         const blockTag = p[1] ?? "latest";
 
         // Tron doesn't use nonces like Ethereum
-        // We return the account's transaction count as a substitute
+        // We provide a monotonically increasing value for Safe compatibility
         const tronAddress = tronBase58FromEvm(tw, address0x);
 
         try {
           // Get account info
           const account = await tw.trx.getAccount(tronAddress);
 
-          // Use transaction count if available, otherwise return 0
-          // Note: This is a conceptual difference - Tron doesn't require nonces
-          const count = account?.transactions?.length ?? 0;
+          // For Safe compatibility: Create a pseudo-nonce that increases over time
+          // This helps Safe maintain transaction ordering without strict sequential nonces
+          const txCount = account?.transactions?.length ?? 0;
 
-          return toHex(count);
+          // Get current block for timestamp-based component
+          const currentBlock = await tw.trx.getCurrentBlock();
+          const blockNumber = currentBlock?.block_header?.raw_data?.number ?? 0;
+
+          // Combine tx count with block number for monotonic increase
+          // This ensures each new transaction gets a higher nonce-like value
+          // Format: (txCount * 1000000) + blockNumber
+          // This gives us room for ~1M blocks between transactions
+          const pseudoNonce = (txCount * 1000000) + (blockNumber % 1000000);
+
+          return toHex(pseudoNonce);
         } catch {
-          // If account doesn't exist, return 0
-          return "0x0";
+          // If account doesn't exist, use block-based nonce
+          try {
+            const currentBlock = await tw.trx.getCurrentBlock();
+            const blockNumber = currentBlock?.block_header?.raw_data?.number ?? 0;
+            return toHex(blockNumber);
+          } catch {
+            return "0x0";
+          }
         }
       }
 
@@ -394,44 +410,67 @@ function buildEip1193Request(
           throw new Error("eth_estimateGas requires a transaction object");
         }
 
-        // For simple transfers, return standard gas estimate
-        if (!txRequest.data || strip0x(txRequest.data).length === 0) {
-          return toHex(21000); // Standard ETH transfer gas
-        }
-
-        // For contract calls, estimate based on complexity
-        const toAddress = assertAddress(tw, txRequest.to, {
-          method,
-          parameter: 0,
-          property: "transaction.to"
-        });
         const fromAddress = resolveFromAddress(tw, config, txRequest.from, {
           method: "eth_estimateGas",
           property: "transaction.from",
           allowZeroFallback: true,
         });
 
-        try {
-          // Try to execute as constant call to estimate energy usage
-          const result = await tw.transactionBuilder.triggerConstantContract(
-            tronBase58FromEvm(tw, toAddress),
-            "",
-            {
-              feeLimit: 150_000_000, // High limit for estimation
-              input: strip0x(txRequest.data),
-              callValue: toSun(txRequest.value, "transaction.value")
-            },
-            [],
-            fromAddress.base58
-          );
-
-          // Return estimated energy usage as gas
-          const energyUsed = result?.energy_used ?? 100000;
-          return toHex(Math.max(energyUsed, 21000)); // Minimum 21000
-        } catch (error) {
-          // If estimation fails, return a default high estimate
-          return toHex(100000);
+        // Handle simple TRX transfers
+        if (!txRequest.data || strip0x(txRequest.data).length === 0) {
+          // Standard transfer uses ~265 bandwidth
+          // Map to standard Ethereum transfer gas for compatibility
+          return toHex(21000);
         }
+
+        // Handle contract interactions
+        if (txRequest.to) {
+          const toAddress = assertAddress(tw, txRequest.to, {
+            method,
+            parameter: 0,
+            property: "transaction.to"
+          });
+
+          try {
+            // Use triggerConstantContract to get accurate energy estimation
+            const result = await tw.transactionBuilder.triggerConstantContract(
+              tronBase58FromEvm(tw, toAddress),
+              "",
+              {
+                feeLimit: 150_000_000, // High limit for estimation
+                input: strip0x(txRequest.data),
+                callValue: toSun(txRequest.value, "transaction.value")
+              },
+              [],
+              fromAddress.base58
+            );
+
+            if (result?.energy_used) {
+              // Map energy directly to gas units
+              // Add a base amount to account for bandwidth costs
+              const estimatedGas = 30000 + result.energy_used;
+              return toHex(estimatedGas);
+            }
+          } catch (error) {
+            // Estimation failed, fall back to data size estimation
+            console.warn("Energy estimation failed, using fallback:", error);
+          }
+
+          // Fallback: estimate based on calldata size
+          const dataBytes = Math.max(0, (strip0x(txRequest.data).length) / 2);
+          const estimatedGas = 30000 + (dataBytes * 68); // 68 gas per byte approximation
+          return toHex(estimatedGas);
+        }
+
+        // Contract deployment (no 'to' address)
+        if (txRequest.data && !txRequest.to) {
+          const dataBytes = Math.max(0, (strip0x(txRequest.data).length) / 2);
+          const deploymentGas = 500000 + (dataBytes * 68);
+          return toHex(deploymentGas);
+        }
+
+        // Default fallback
+        return toHex(100000);
       }
 
       case "eth_getStorageAt": {
@@ -454,9 +493,21 @@ function buildEip1193Request(
       }
 
       case "eth_gasPrice": {
-        // Tron uses bandwidth and energy, not gas price
-        // Return a fixed value that works for conversions
-        return toHex(1); // 1 wei equivalent
+        // Return current energy price mapped to wei
+        // Energy price is typically around 420 SUN per unit
+        // We map this directly for meaningful gas calculations
+        try {
+          // Try to get current energy price from chain parameters
+          const chainParams = await tw.trx.getChainParameters();
+          const energyParam = chainParams?.find((p: any) => p.key === 'getEnergyFee');
+          const energyPrice = energyParam?.value || 420;
+
+          // Return energy price as gas price (SUN maps to Wei)
+          return toHex(energyPrice);
+        } catch {
+          // Default to 420 SUN per energy unit
+          return toHex(420);
+        }
       }
 
       case "eth_sign": {
@@ -484,8 +535,74 @@ function buildEip1193Request(
         }
       }
 
-      case "eth_feeHistory":
-      case "eth_maxPriorityFeePerGas":
+      case "eth_maxPriorityFeePerGas": {
+        // Tron doesn't have priority fees like Ethereum
+        // Return 0 to indicate no priority fee mechanism
+        return "0x0";
+      }
+
+      case "eth_feeHistory": {
+        // Implement fee history for EIP-1559 compatibility
+        const blockCount = Number(p[0] || 1);
+        const newestBlock = p[1] || "latest";
+        const rewardPercentiles = p[2] || [];
+
+        // Get the current block number
+        let endBlockNumber: number;
+        if (newestBlock === "latest" || newestBlock === "pending") {
+          const block = await tw.trx.getCurrentBlock();
+          endBlockNumber = block?.block_header?.raw_data?.number || 0;
+        } else {
+          endBlockNumber = typeof newestBlock === "string"
+            ? parseInt(newestBlock, 16)
+            : Number(newestBlock);
+        }
+
+        const startBlockNumber = Math.max(0, endBlockNumber - blockCount + 1);
+
+        // Get current energy price for base fee calculation
+        let energyPrice = 420; // Default
+        try {
+          const chainParams = await tw.trx.getChainParameters();
+          const energyParam = chainParams?.find((p: any) => p.key === 'getEnergyFee');
+          if (energyParam?.value) {
+            energyPrice = energyParam.value;
+          }
+        } catch {
+          // Use default
+        }
+
+        // Build response
+        const baseFeePerGas: string[] = [];
+        const gasUsedRatio: number[] = [];
+        const reward: string[][] = [];
+
+        for (let i = 0; i < blockCount; i++) {
+          // Use current energy price as base fee for all blocks
+          baseFeePerGas.push(toHex(energyPrice));
+
+          // Tron doesn't have block gas limits, use a moderate ratio
+          gasUsedRatio.push(0.5);
+
+          // No priority fees in Tron
+          if (rewardPercentiles && rewardPercentiles.length > 0) {
+            reward.push(rewardPercentiles.map(() => "0x0"));
+          }
+        }
+
+        const response: any = {
+          oldestBlock: toHex(startBlockNumber),
+          baseFeePerGas,
+          gasUsedRatio
+        };
+
+        if (reward.length > 0) {
+          response.reward = reward;
+        }
+
+        return response;
+      }
+
       case "eth_newFilter":
       case "eth_getFilterChanges":
       case "eth_getFilterLogs":
