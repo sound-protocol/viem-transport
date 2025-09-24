@@ -10,16 +10,33 @@
 import { TronWeb } from "tronweb";
 import { createPublicClient, erc20Abi } from "viem";
 import { tronWeb } from "./tronWeb";
+import * as dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config();
 
 async function main() {
-  // Configure TronWeb (replace with your endpoint)
-  const tw = new TronWeb({ fullHost: "https://api.trongrid.io" });
+  // Configure TronWeb for Nile testnet
+  // To use mainnet, change to: https://api.trongrid.io
+  const NETWORK = "testnet"; // or "mainnet"
+  const PRIVATE_KEY = process.env.PRIVATE_KEY || ""; // Set your private key here or via env
+
+  const tw = new TronWeb({
+    fullHost: NETWORK === "testnet"
+      ? "https://nile.trongrid.io"
+      : "https://api.trongrid.io",
+    privateKey: PRIVATE_KEY
+  });
+
+  // Get sender address from private key if available
+  const senderAddress = PRIVATE_KEY ? tw.address.fromPrivateKey(PRIVATE_KEY) : undefined;
 
   // Create a viem client using the TronWeb transport.
   // Provide a chainId to satisfy `eth_chainId` calls (choose your own convention).
   const client = createPublicClient({
     transport: tronWeb(tw, {
       chainId: "0x0",
+      defaultFrom: senderAddress, // Set default from address
       callOptions: { feeLimit: 15_000_000 },
       sendOptions: { feeLimit: 20_000_000 },
     }),
@@ -99,19 +116,66 @@ async function main() {
     console.warn("Contract call failed:", err);
   }
 
-  // Example outline for sending a transaction (requires signing capability & funded account).
-  // Uncomment after configuring TronWeb with a private key or wallet that can sign.
-  // const txHash = await client.request({
-  //   method: "eth_sendTransaction",
-  //   params: [
-  //     {
-  //       from: "0xYOUR_FROM_ADDRESS",
-  //       to: "0xRECIPIENT_ADDRESS",
-  //       value: "0x10F0CF064DD5920000", // amount in SUN (hex)
-  //     },
-  //   ],
-  // });
-  // console.log("eth_sendTransaction tx hash:", txHash);
+  // Example: Send a transaction (requires private key)
+  if (PRIVATE_KEY) {
+    console.log("\n📤 SENDING TRANSACTION");
+    console.log("Network:", NETWORK === "testnet" ? "Nile Testnet" : "Mainnet");
+
+    // Get sender address from private key
+    const senderAddress = tw.address.fromPrivateKey(PRIVATE_KEY);
+    console.log("From address:", senderAddress);
+
+    // Check sender balance first
+    try {
+      const senderBalance = await client.request({
+        method: "eth_getBalance",
+        params: [senderAddress, "latest"],
+      });
+      const balanceTRX = parseInt(senderBalance as string, 16) / 1_000_000;
+      console.log(`Sender balance: ${balanceTRX.toFixed(6)} TRX`);
+
+      if (balanceTRX < 1) {
+        console.warn("⚠️  Low balance. Need at least 1 TRX for fees.");
+      }
+    } catch (err) {
+      console.warn("Could not check balance:", err);
+    }
+
+    // Send transaction
+    try {
+      const recipientAddress = "TDGJM2pn4YL7ivdebVQfbRVQ33GroSqDpx"; // Change this to your recipient
+      const amountInTRX = 10; // Sending 10 TRX
+      const amountInSun = amountInTRX * 1_000_000;
+      const amountHex = "0x" + amountInSun.toString(16);
+
+      console.log(`\nSending ${amountInTRX} TRX to ${recipientAddress}...`);
+      console.log(`Amount in hex: ${amountHex} (${amountInSun} SUN)`);
+      console.log(`From: ${senderAddress}`);
+
+      const txHash = await client.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: senderAddress,
+          to: recipientAddress,
+          value: amountHex, // amount in SUN (hex)
+        }],
+      });
+
+      console.log("✅ Transaction sent!");
+      console.log("TX Hash:", txHash);
+      console.log(`View on ${NETWORK === "testnet" ? "Nile" : "Tronscan"}:`,
+        NETWORK === "testnet"
+          ? `https://nile.tronscan.org/#/transaction/${txHash.replace("0x", "")}`
+          : `https://tronscan.org/#/transaction/${txHash.replace("0x", "")}`
+      );
+    } catch (err: any) {
+      console.error("❌ Transaction failed:", err.message);
+    }
+  } else {
+    console.log("\n📝 To send transactions, set your private key:");
+    console.log("   PRIVATE_KEY=your_private_key_here npm run demo");
+    console.log("   Or edit the PRIVATE_KEY variable in this file");
+  }
 }
 
 main().catch((err) => {

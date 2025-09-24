@@ -100,7 +100,7 @@ type TronWebLike = {
     getAccount(address: string): Promise<{ transactions?: unknown[] }>;
     getContract(address: string): Promise<{ bytecode?: string }>;
     getChainParameters(): Promise<Array<{ key: string; value: number }>>;
-    sendRawTransaction(raw: string): Promise<{ txid?: string; result?: boolean; transaction?: { txID: string } }>;
+    sendRawTransaction(raw: string | TronTransaction): Promise<{ txid?: string; result?: boolean; transaction?: { txID: string } }>;
     sign(data: unknown): Promise<string>;
   };
   transactionBuilder: {
@@ -1019,7 +1019,7 @@ async function handleEthSendTransaction(
   )
     throw new Error("eth_sendTransaction signing failed: missing signature.");
 
-  const broadcast = await tw.trx.sendRawTransaction(JSON.stringify(preparedTx));
+  const broadcast = await tw.trx.sendRawTransaction(preparedTx);
   if (!broadcast?.result) {
     const message = extractTronErrorMessage(broadcast);
     const reason = message ?? "broadcast rejected";
@@ -1172,7 +1172,12 @@ async function signTransaction(
         request: context,
       });
     const signed = await tw.trx.sign(transaction);
-    return typeof signed === "string" ? transaction : signed;
+    // TronWeb.trx.sign returns the signed transaction object when a private key is set
+    // If it returns a string, that's an error - the transaction wasn't signed properly
+    if (typeof signed === "string") {
+      throw new Error("Failed to sign transaction - ensure private key is configured");
+    }
+    return signed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`eth_sendTransaction signing failed: ${message}`);
