@@ -1,0 +1,22 @@
+{
+  "name": "viem-transport",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "tronweb": "^6.0.4",
+    "viem": "^2.37.8"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^3.2.4",
+    "tsx": "^4.20.5",
+    "vitest": "^3.2.4"
+  }
+}
