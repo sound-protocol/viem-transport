@@ -768,19 +768,19 @@ function buildEip1193Request(
 
       case "eth_gasPrice": {
         // Return current energy price mapped to wei
-        // Energy price is typically around 420 SUN per unit
+        // Energy price is 100 SUN per unit
         // We map this directly for meaningful gas calculations
         try {
           // Try to get current energy price from chain parameters
           const chainParams = await tw.trx.getChainParameters();
           const energyParam = chainParams?.find((p: { key: string; value: number }) => p.key === 'getEnergyFee');
-          const energyPrice = energyParam?.value || 420;
+          const energyPrice = energyParam?.value || 100;
 
           // Return energy price as gas price (SUN maps to Wei)
           return toHex(energyPrice);
         } catch {
-          // Default to 420 SUN per energy unit
-          return toHex(420);
+          // Default to 100 SUN per energy unit
+          return toHex(100);
         }
       }
 
@@ -828,7 +828,7 @@ function buildEip1193Request(
         const startBlockNumber = Math.max(0, endBlockNumber - blockCount + 1);
 
         // Get current energy price for base fee calculation
-        let energyPrice = 420; // Default
+        let energyPrice = 100; // Default
         try {
           const chainParams = await tw.trx.getChainParameters();
           const energyParam = chainParams?.find((p: { key: string; value: number }) => p.key === 'getEnergyFee');

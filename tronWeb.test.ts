@@ -318,12 +318,12 @@ describe('TronWeb Transport', () => {
   describe('eth_gasPrice', () => {
     test('should return fixed gas price', async () => {
       mockTronWeb.trx.getChainParameters.mockResolvedValue([
-        { key: 'getEnergyFee', value: 420 }
+        { key: 'getEnergyFee', value: 100 }
       ]);
 
       const client = transport({ chain: undefined });
       const result = await client.request({ method: 'eth_gasPrice' });
-      expect(result).toBe('0x1a4'); // 420 in hex
+      expect(result).toBe('0x64'); // 100 in hex
     });
   });
 
