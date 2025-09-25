@@ -235,11 +235,118 @@ export const eth_sign: MethodHandler = async (params, { tw }) => {
   }
 
   try {
-    // Use TronWeb's sign method directly
-    const signature = await tw.trx.sign(message);
-    return to0x(signature);
+    // Convert hex message to bytes if needed
+    const messageHex = strip0x(message as string);
+    const messageBytes = Buffer.from(messageHex, 'hex');
+
+    // Use TronWeb's message signing (not transaction signing)
+    const signature = await tw.trx.signMessageV2(messageBytes);
+
+    // TronWeb returns base58 signature, convert to hex
+    if (typeof signature === 'string') {
+      // If it's already a string, ensure it's properly formatted
+      return to0x(signature);
+    } else if (signature && typeof signature === 'object') {
+      // If it returns an object with signature property
+      const sig = signature.signature || signature;
+      return to0x(sig);
+    }
+
+    throw new Error('Invalid signature format from TronWeb');
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     throw new Error(`eth_sign failed: ${msg}`);
   }
 };
+
+// Personal sign adds Ethereum-specific prefix to messages
+export const personal_sign: MethodHandler = async (params, { tw }) => {
+  // personal_sign has message first, then address
+  const message = params[0];
+  const address = params[1];
+
+  assertAddress(tw, address, { method: "personal_sign", parameter: 1 });
+
+  if (!message) {
+    throw new Error("personal_sign requires a message to sign");
+  }
+
+  try {
+    // Convert message to bytes
+    const messageStr = typeof message === 'string' ? strip0x(message) : String(message);
+    const messageBytes = Buffer.from(messageStr, 'hex');
+
+    // Add Ethereum personal message prefix
+    const prefix = `\x19Ethereum Signed Message:\n${messageBytes.length}`;
+    const prefixBytes = Buffer.from(prefix, 'utf8');
+    const prefixedMessage = Buffer.concat([prefixBytes, messageBytes]);
+
+    // Sign the prefixed message
+    const signature = await tw.trx.signMessageV2(prefixedMessage);
+
+    // Format signature for Ethereum compatibility
+    if (typeof signature === 'string') {
+      return to0x(signature);
+    } else if (signature && typeof signature === 'object') {
+      const sig = signature.signature || signature;
+      return to0x(sig);
+    }
+
+    throw new Error('Invalid signature format from TronWeb');
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(`personal_sign failed: ${msg}`);
+  }
+};
+
+// eth_signTypedData_v4 for EIP-712 structured data signing
+export const eth_signTypedData_v4: MethodHandler = async (params, { tw, getChainIdHex }) => {
+  const address = params[0];
+  const typedDataJson = params[1];
+
+  assertAddress(tw, address, { method: "eth_signTypedData_v4", parameter: 0 });
+
+  if (!typedDataJson) {
+    throw new Error("eth_signTypedData_v4 requires typed data to sign");
+  }
+
+  try {
+    // Import EIP-712 utilities dynamically
+    const { parseTypedData, createEIP712Digest } = await import("../utils/eip712");
+
+    // Parse and validate the typed data
+    const typedData = parseTypedData(typedDataJson);
+
+    // Add chainId to domain if not present
+    if (!typedData.domain.chainId) {
+      const chainIdHex = getChainIdHex();
+      typedData.domain.chainId = parseInt(chainIdHex, 16);
+    }
+
+    // Create the EIP-712 digest
+    const digest = createEIP712Digest(typedData);
+
+    // Convert digest to bytes for signing
+    const digestBytes = Buffer.from(strip0x(digest), 'hex');
+
+    // Sign the EIP-712 digest
+    const signature = await tw.trx.signMessageV2(digestBytes);
+
+    // Format the signature
+    if (typeof signature === 'string') {
+      return to0x(signature);
+    } else if (signature && typeof signature === 'object') {
+      const sig = signature.signature || signature;
+      return to0x(sig);
+    }
+
+    throw new Error('Invalid signature format from TronWeb');
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(`eth_signTypedData_v4 failed: ${msg}`);
+  }
+};
+
+// Additional signing methods for completeness
+export const eth_signTypedData: MethodHandler = eth_signTypedData_v4;
+export const eth_signTypedData_v3: MethodHandler = eth_signTypedData_v4;

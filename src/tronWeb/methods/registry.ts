@@ -7,7 +7,11 @@ import {
   eth_getTransactionReceipt,
   eth_getTransaction,
   eth_getTransactionByHash,
-  eth_sign
+  eth_sign,
+  personal_sign,
+  eth_signTypedData,
+  eth_signTypedData_v3,
+  eth_signTypedData_v4
 } from "./transactions";
 import { eth_call, eth_estimateGas, eth_getCode, eth_getStorageAt } from "./contracts";
 import { eth_getLogs } from "./logs";
@@ -37,6 +41,10 @@ export const METHOD_REGISTRY: Record<string, MethodHandler> = {
   "eth_getTransaction": eth_getTransaction,
   "eth_getTransactionByHash": eth_getTransactionByHash,
   "eth_sign": eth_sign,
+  "personal_sign": personal_sign,
+  "eth_signTypedData": eth_signTypedData,
+  "eth_signTypedData_v3": eth_signTypedData_v3,
+  "eth_signTypedData_v4": eth_signTypedData_v4,
 
   // Contract methods
   "eth_call": eth_call,
