@@ -651,23 +651,32 @@ function buildEip1193Request(
               options.eventName = filter.eventName;
             }
 
-            const events = await tw.event.getEventsByContractAddress(
+            const response = await tw.event.getEventsByContractAddress(
               tronAddr,
               options
             );
 
+            // Handle the response format - it has a 'data' field
+            let events: any[] = [];
+            if (response && response.data && Array.isArray(response.data)) {
+              events = response.data;
+            } else if (Array.isArray(response)) {
+              events = response;
+            }
+
             // Convert Tron events to Ethereum log format
-            if (Array.isArray(events)) {
+            if (events.length > 0) {
               for (const event of events) {
                 const log = {
-                  address: tronAddressTo0x(tw, event.contract) ?? ZERO_ADDRESS,
+                  address: tronAddressTo0x(tw, event.contract_address || event.contract) ?? ZERO_ADDRESS,
                   topics: convertEventTopics(event),
                   data: event.data ? to0x(event.data) : "0x",
-                  blockNumber: event.block != null ? toHex(event.block) : null,
-                  blockHash: event.block_hash ? to0x(event.block_hash) : null,
+                  blockNumber: event.block_number != null ? toHex(event.block_number) :
+                              event.block != null ? toHex(event.block) : null,
+                  blockHash: null, // Tron doesn't provide block hash in events
                   transactionHash: event.transaction_id ? to0x(event.transaction_id) : null,
-                  transactionIndex: toHex(event.transaction_index ?? 0),
-                  logIndex: toHex(event.log_index ?? logs.length),
+                  transactionIndex: "0x0",
+                  logIndex: toHex(event.event_index ?? event.log_index ?? logs.length),
                   removed: false
                 };
 
