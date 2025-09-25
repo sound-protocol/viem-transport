@@ -164,6 +164,148 @@ const TRON_HEX_PREFIX = "41";
 const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]+$/;
 const DEFAULT_FEE_LIMIT = 15_000_000;
 
+// Function selector registry for smart contract interactions
+interface FunctionInfo {
+  signature: string;
+  params: string[];
+}
+
+const FUNCTION_REGISTRY: Record<string, FunctionInfo> = {
+  // ERC-20 Standard Functions
+  'a9059cbb': { signature: 'transfer(address,uint256)', params: ['address', 'uint256'] },
+  '095ea7b3': { signature: 'approve(address,uint256)', params: ['address', 'uint256'] },
+  '23b872dd': { signature: 'transferFrom(address,address,uint256)', params: ['address', 'address', 'uint256'] },
+  '70a08231': { signature: 'balanceOf(address)', params: ['address'] },
+  'dd62ed3e': { signature: 'allowance(address,address)', params: ['address', 'address'] },
+  '18160ddd': { signature: 'totalSupply()', params: [] },
+  '313ce567': { signature: 'decimals()', params: [] },
+  '95d89b41': { signature: 'symbol()', params: [] },
+  '06fdde03': { signature: 'name()', params: [] },
+
+  // Safe Contract Functions
+  '6a761202': { signature: 'execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)', params: ['address', 'uint256', 'bytes', 'uint8', 'uint256', 'uint256', 'uint256', 'address', 'address', 'bytes'] },
+  '0d582f13': { signature: 'addOwnerWithThreshold(address,uint256)', params: ['address', 'uint256'] },
+  'f8dc5dd9': { signature: 'removeOwner(address,address,uint256)', params: ['address', 'address', 'uint256'] },
+  'e009cfde': { signature: 'swapOwner(address,address,address)', params: ['address', 'address', 'address'] },
+  '694e80c3': { signature: 'changeThreshold(uint256)', params: ['uint256'] },
+  '610b5925': { signature: 'enableModule(address)', params: ['address'] },
+  'e009cfdf': { signature: 'disableModule(address,address)', params: ['address', 'address'] },
+  'd4d9bdcd': { signature: 'approveHash(bytes32)', params: ['bytes32'] },
+  '20c13b0b': { signature: 'isValidSignature(bytes,bytes)', params: ['bytes', 'bytes'] },
+  '2f54bf6e': { signature: 'isOwner(address)', params: ['address'] },
+  'a0e67e2b': { signature: 'getOwners()', params: [] },
+  'e75235b8': { signature: 'getThreshold()', params: [] },
+  'affed0e0': { signature: 'nonce()', params: [] },
+};
+
+interface ParsedParam {
+  type: string;
+  value: any;
+}
+
+interface ParsedCallData {
+  functionInfo: FunctionInfo;
+  params: ParsedParam[];
+}
+
+// Parse Ethereum ABI-encoded call data into function info and parameters
+function parseCallData(rawParameter: string): ParsedCallData | null {
+  if (rawParameter.length < 8) return null;
+
+  const selector = rawParameter.substring(0, 8).toLowerCase();
+  const functionInfo = FUNCTION_REGISTRY[selector];
+
+  if (!functionInfo) return null;
+
+  const params: ParsedParam[] = [];
+  let offset = 8; // Skip the 4-byte selector (8 hex chars)
+
+  for (const paramType of functionInfo.params) {
+    if (offset >= rawParameter.length) {
+      // Not enough data for all parameters
+      break;
+    }
+
+    if (paramType === 'address') {
+      // Address is 32 bytes (64 hex chars), but only last 20 bytes are the address
+      if (offset + 64 <= rawParameter.length) {
+        const addressHex = rawParameter.substring(offset + 24, offset + 64);
+        params.push({ type: 'address', value: addressHex });
+        offset += 64;
+      }
+    } else if (paramType === 'uint256' || paramType === 'uint') {
+      // uint256 is 32 bytes (64 hex chars)
+      if (offset + 64 <= rawParameter.length) {
+        const value = rawParameter.substring(offset, offset + 64);
+        params.push({ type: 'uint256', value: `0x${value}` });
+        offset += 64;
+      }
+    } else if (paramType === 'uint8') {
+      // uint8 is still padded to 32 bytes
+      if (offset + 64 <= rawParameter.length) {
+        const value = rawParameter.substring(offset + 62, offset + 64); // Last byte
+        params.push({ type: 'uint8', value: parseInt(value, 16) });
+        offset += 64;
+      }
+    } else if (paramType === 'bool') {
+      // bool is 32 bytes, with 0 or 1 in the last byte
+      if (offset + 64 <= rawParameter.length) {
+        const value = rawParameter.substring(offset + 63, offset + 64);
+        params.push({ type: 'bool', value: value === '1' });
+        offset += 64;
+      }
+    } else if (paramType === 'bytes32') {
+      // bytes32 is 32 bytes
+      if (offset + 64 <= rawParameter.length) {
+        const value = rawParameter.substring(offset, offset + 64);
+        params.push({ type: 'bytes32', value: `0x${value}` });
+        offset += 64;
+      }
+    } else if (paramType === 'bytes') {
+      // Dynamic bytes - offset pointer followed by length and data
+      if (offset + 64 <= rawParameter.length) {
+        const offsetPointer = parseInt(rawParameter.substring(offset, offset + 64), 16) * 2 + 8;
+        params.push({ type: 'bytes', value: offsetPointer }); // Store offset for later processing
+        offset += 64;
+      }
+    }
+  }
+
+  // Process dynamic data types (bytes) if present
+  for (let i = 0; i < params.length; i++) {
+    if (params[i].type === 'bytes' && typeof params[i].value === 'number') {
+      const dataOffset = params[i].value as number;
+      if (dataOffset < rawParameter.length) {
+        const lengthHex = rawParameter.substring(dataOffset, dataOffset + 64);
+        const length = parseInt(lengthHex, 16) * 2;
+        const data = rawParameter.substring(dataOffset + 64, dataOffset + 64 + length);
+        params[i].value = `0x${data}`;
+      }
+    }
+  }
+
+  return { functionInfo, params };
+}
+
+// Convert Ethereum addresses in parameters to Tron format
+function convertParamsToTron(params: ParsedParam[], tw: TronWebLike): any[] {
+  return params.map(param => {
+    if (param.type === 'address' && typeof param.value === 'string') {
+      const ethAddress = `0x${param.value}` as Address;
+      const tronAddress = tronBase58FromEvm(tw, ethAddress);
+      return { type: 'address', value: tronAddress };
+    }
+    return param;
+  });
+}
+
+// Helper to extract dynamic bytes from ABI-encoded data
+function extractDynamicBytes(data: string, offset: number): string {
+  const lengthHex = data.substring(offset, offset + 64);
+  const length = parseInt(lengthHex, 16) * 2;
+  return data.substring(offset + 64, offset + 64 + length);
+}
+
 export type TronWebTransportConfig = {
   /** Value to return for `eth_chainId`. If omitted, falls back to `chain.id`. */
   chainId?: number | `0x${string}`;
@@ -966,37 +1108,36 @@ async function handleEthSendTransaction(
     // Handle Ethereum ABI-encoded data
     const rawParameter = strip0x(dataHex);
     if (rawParameter.length > 0) {
-      // For TRC-20 transfers, we need to convert addresses in the parameters
-      // Ethereum encodes: functionSelector(4) + address(32) + amount(32)
-      if (rawParameter.length >= 68 && rawParameter.startsWith('a9059cbb')) { // transfer(address,uint256)
-        // Extract the address (bytes 4-35, but take last 20 bytes)
-        const addressHex = rawParameter.substring(32, 72); // Skip selector + padding
-        const amountHex = rawParameter.substring(72, 136);
+      // Try to parse the function call data
+      const parsedCall = parseCallData(rawParameter);
 
-        // Convert 0x address back to Tron format for the parameter
-        const ethAddress = `0x${addressHex}`;
-        const tronRecipient = tronBase58FromEvm(tw, ethAddress as Address);
+      if (parsedCall) {
+        // We recognized the function - use dynamic processing
+        const { functionInfo, params } = parsedCall;
+        const tronParams = convertParamsToTron(params, tw);
 
-        // Use TronWeb's contract interface for proper encoding
+        // Log function call for debugging (if needed)
+        if (process.env.DEBUG_TRANSPORT) {
+          console.debug(`Calling ${functionInfo.signature} with params:`, tronParams);
+        }
+
         const trigger = await tw.transactionBuilder.triggerSmartContract(
           contractBase58,
-          "transfer(address,uint256)",
+          functionInfo.signature,
           options,
-          [
-            { type: 'address', value: tronRecipient },
-            { type: 'uint256', value: `0x${amountHex}` }
-          ],
+          tronParams,
           sender.base58,
         );
 
         if (!trigger?.transaction || trigger?.result?.result === false) {
           const message = extractTronErrorMessage(trigger);
           const reason = message ?? "failed to build Tron transaction";
-          throw new Error(`eth_sendTransaction preparation failed: ${reason}`);
+          throw new Error(`eth_sendTransaction ${functionInfo.signature} failed: ${reason}`);
         }
         transaction = trigger.transaction;
       } else {
-        // For other contract calls, use raw parameter (might need more specific handling)
+        // Unrecognized function - fall back to raw parameter
+        // This allows new functions to still work without explicit support
         options.rawParameter = rawParameter;
         const trigger = await tw.transactionBuilder.triggerSmartContract(
           contractBase58,
