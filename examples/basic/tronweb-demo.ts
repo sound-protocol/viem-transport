@@ -9,7 +9,7 @@
 
 import { TronWeb } from "tronweb";
 import { createPublicClient, erc20Abi } from "viem";
-import { tronWeb } from "./tronWeb";
+import { tronWeb } from "../../tronWeb";
 import * as dotenv from "dotenv";
 
 // Load environment variables from .env file

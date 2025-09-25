@@ -94,16 +94,41 @@ const evmAddr = toCanonicalAddress(tw, tronAddr);
 
 ## 🧪 Testing
 
-### Test Structure
-- `tronWeb.test.ts` - Main transport tests (27 test cases)
-- `test-transport-events.ts` - Event handling tests
-- `tronweb-demo.ts` - Integration demo
+### Test Structure (Organized)
+```
+tests/
+├── unit/              # Fast, mocked unit tests
+├── integration/       # Network integration tests
+├── e2e/              # End-to-end transaction tests
+└── utils/            # Diagnostic & utility tests
+
+examples/
+└── basic/            # Usage examples
+
+configs/              # Vitest configurations
+```
 
 ### Running Tests
 ```bash
-npm run test:run    # Run all tests
-npm test           # Run tests in watch mode
-npx tsx tronweb-demo.ts  # Run demo (requires .env)
+# Quick commands
+npm run test:unit           # Run unit tests
+npm run test:integration    # Run integration tests
+npm run test:e2e           # Run E2E tests (needs .env)
+npm run test:all           # Run all test suites
+
+# Watch modes
+npm run test:unit:watch
+npm run test:integration:watch
+npm run test:e2e:watch
+
+# Coverage
+npm run test:coverage
+npm run test:unit:coverage
+
+# Examples & Utils
+npm run example:basic      # Basic demo
+npm run example:advanced   # Advanced features
+npm run utils:conversion   # Test address conversion
 ```
 
 ### Test Coverage Areas

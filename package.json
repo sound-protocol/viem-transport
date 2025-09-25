@@ -4,7 +4,22 @@
   "main": "index.js",
   "scripts": {
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:unit": "vitest run --config vitest.config.unit.ts",
+    "test:unit:watch": "vitest --config vitest.config.unit.ts",
+    "test:unit:coverage": "vitest run --config vitest.config.unit.ts --coverage",
+    "test:integration": "vitest run --config vitest.config.integration.ts",
+    "test:integration:watch": "vitest --config vitest.config.integration.ts",
+    "test:e2e": "vitest run --config vitest.config.e2e.ts",
+    "test:e2e:watch": "vitest --config vitest.config.e2e.ts",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "example:basic": "tsx examples/basic/tronweb-demo.ts",
+    "example:events": "tsx tests/integration/transport-events.test.ts",
+    "example:advanced": "tsx tests/e2e/advanced.test.ts",
+    "utils:conversion": "tsx tests/utils/conversion-test.ts",
+    "utils:debug-events": "tsx tests/utils/debug-events.ts"
   },
   "keywords": [],
   "author": "",
