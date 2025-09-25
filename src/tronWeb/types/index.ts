@@ -142,6 +142,8 @@ export type TronWebLike = {
 
 export type Address = `0x${string}`;
 
+export type { TronWebTransport } from "./config";
+
 export interface FunctionInfo {
   signature: string;
   params: string[];

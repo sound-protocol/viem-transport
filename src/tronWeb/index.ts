@@ -114,4 +114,4 @@ export type { TronWebTransportConfig, TronWebSigner, TronWebSignerContext } from
 // Export utility functions that might be useful for consumers
 export * from "./utils/address";
 export * from "./utils/hex";
-export { ZERO_ADDRESS, DEFAULT_FEE_LIMIT } from "./constants";
+export { ZERO_ADDRESS, DEFAULT_FEE_LIMIT, TRON_HEX_PREFIX, BASE58_REGEX } from "./constants";
