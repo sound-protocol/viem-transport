@@ -9,6 +9,12 @@ import { extractTronErrorMessage } from "../utils/errors";
 import { parseCallData, convertParamsToTron } from "../abi/parser";
 import { signTransaction } from "../utils/signing";
 import { DEFAULT_FEE_LIMIT } from "../constants";
+import {
+  signWithEthereumPrefix,
+  ensureEthereumSignatureFormat,
+  DEFAULT_COMPATIBILITY_CONFIG,
+  SignatureCompatibilityConfig
+} from "../utils/ethereum-compatible-signing";
 
 export const eth_sendRawTransaction: MethodHandler = async (params, { tw }) => {
   const raw = strip0x(params[0] as string);
@@ -226,7 +232,7 @@ export const eth_sendTransaction: MethodHandler = async (params, { tw, config })
   return to0x(txid);
 };
 
-export const eth_sign: MethodHandler = async (params, { tw }) => {
+export const eth_sign: MethodHandler = async (params, { tw, config }) => {
   assertAddress(tw, params[0], { method: "eth_sign", parameter: 0 });
   const message = params[1];
 
@@ -239,16 +245,26 @@ export const eth_sign: MethodHandler = async (params, { tw }) => {
     const messageHex = strip0x(message as string);
     const messageBytes = Buffer.from(messageHex, 'hex');
 
-    // Use TronWeb's message signing (not transaction signing)
-    const signature = await tw.trx.signMessageV2(messageBytes);
+    // Check if we should use Ethereum-compatible signing (for Safe)
+    const useEthereumCompatible = config?.signatureCompatibility?.useEthereumPrefix ??
+                                  DEFAULT_COMPATIBILITY_CONFIG.useEthereumPrefix;
 
-    // TronWeb returns base58 signature, convert to hex
+    let signature: string;
+    if (useEthereumCompatible) {
+      // Use Ethereum-compatible signing for Safe compatibility
+      signature = await signWithEthereumPrefix(tw, messageBytes);
+    } else {
+      // Use standard TronWeb signing
+      signature = await tw.trx.signMessageV2(messageBytes);
+      // Ensure proper format
+      signature = ensureEthereumSignatureFormat(signature);
+    }
+
+    // Format and return
     if (typeof signature === 'string') {
-      // If it's already a string, ensure it's properly formatted
       return to0x(signature);
     } else if (signature && typeof signature === 'object') {
-      // If it returns an object with signature property
-      const sig = signature.signature || signature;
+      const sig = (signature as any).signature || signature;
       return to0x(sig);
     }
 

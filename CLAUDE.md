@@ -14,7 +14,7 @@ src/tronWeb/                 # Main transport implementation
 ├── index.ts                 # Transport factory & main export
 ├── types/                   # TypeScript definitions
 │   ├── index.ts            # Core interfaces (TronBlock, TronTransaction, etc.)
-│   └── config.ts           # Transport configuration types
+│   └── config.ts           # Transport configuration types (includes signatureCompatibility)
 ├── constants.ts            # Shared constants (addresses, limits)
 ├── utils/                  # Reusable utilities
 │   ├── address.ts          # Tron ↔ EVM address conversions
@@ -24,7 +24,9 @@ src/tronWeb/                 # Main transport implementation
 │   ├── numeric.ts          # Number/BigInt conversions
 │   ├── signing.ts          # Transaction signing
 │   ├── transactions.ts     # Transaction helpers
-│   └── validation.ts       # Input validation
+│   ├── validation.ts       # Input validation
+│   ├── eip712.ts           # EIP-712 typed data encoding
+│   └── ethereum-compatible-signing.ts # Signature compatibility layer
 ├── abi/                    # Contract interaction
 │   ├── registry.ts         # Function signatures (ERC-20, Safe, etc.)
 │   └── parser.ts           # ABI parsing & encoding
@@ -36,7 +38,7 @@ src/tronWeb/                 # Main transport implementation
     ├── contracts.ts       # eth_call, estimateGas, getCode
     ├── gas.ts             # Gas pricing & fee history
     ├── logs.ts            # Event filtering
-    └── transactions.ts    # Send, receipt, get transaction
+    └── transactions.ts    # Send, receipt, get transaction, signing methods
 ```
 
 ### Key Design Patterns
@@ -139,6 +141,9 @@ npm run utils:conversion   # Test address conversion
 - ✅ Event logs (eth_getLogs)
 - ✅ Error handling
 - ✅ Address conversion
+- ✅ EIP-712 typed data signing
+- ✅ Message signing (eth_sign, personal_sign)
+- ✅ Signature compatibility modes
 
 ## ⚠️ Important Gotchas
 
@@ -159,6 +164,8 @@ npm run utils:conversion   # Test address conversion
 - **Private key required**: TronWeb instance must have privateKey configured
 - **Custom signers**: Can override via `config.sendOptions.signer`
 - **Returns object not string**: `tw.trx.sign()` returns transaction object
+- **Signature incompatibility**: Tron uses different message prefix than Ethereum
+- **Configurable compatibility**: Use `signatureCompatibility` config for Safe contracts
 
 ### 4. Error Messages
 - **Base64 encoded**: Some Tron errors are base64 encoded
@@ -192,6 +199,9 @@ const message = extractTronErrorMessage(error);
 2. **src/tronWeb/methods/registry.ts** - All supported RPC methods
 3. **src/tronWeb/utils/address.ts** - Critical address conversion logic
 4. **src/tronWeb/abi/registry.ts** - Supported contract functions
+5. **src/tronWeb/utils/eip712.ts** - EIP-712 typed data implementation
+6. **src/tronWeb/utils/ethereum-compatible-signing.ts** - Signature compatibility layer
+7. **src/tronWeb/types/config.ts** - Configuration including signature modes
 
 ## 🚀 Performance Considerations
 
@@ -254,3 +264,57 @@ When working on this codebase:
 3. **Developer-friendly** error messages and debugging
 4. **Production-ready** performance and reliability
 5. **Well-documented** for both users and contributors
+
+## 🏆 Safe Contract Compatibility Journey
+
+### The Challenge
+Integrating Safe (Gnosis Safe) contracts with Tron revealed a fundamental incompatibility between Tron and Ethereum signature schemes:
+- **Ethereum**: Uses prefix `\x19Ethereum Signed Message:\n`
+- **Tron**: Uses prefix `\x19TRON Signed Message:\n`
+- **Problem**: Ethereum's `ecrecover` cannot verify Tron signatures
+
+### Lessons Learned
+
+1. **Signature Prefixes Matter**
+   - Initially attempted to add Ethereum prefix before signing
+   - Discovered this causes double-prefixing (TronWeb adds its own)
+   - Result: Invalid signatures that neither chain can verify
+
+2. **Two Types of Safe Deployments**
+   - **Tron-Adapted Safe**: Modified to accept Tron signatures natively
+   - **Unmodified Safe**: Requires Ethereum-compatible signatures
+   - Solution: Made signature mode configurable via `signatureCompatibility`
+
+3. **EIP-712 Implementation**
+   - Successfully implemented full EIP-712 encoding for typed data
+   - Works with both signature modes
+   - Critical for Safe transaction proposals
+
+4. **Testing with Real Signatures**
+   - Mock signatures masked the incompatibility issue
+   - Real testnet testing revealed the true behavior
+   - Always test with actual blockchain interactions
+
+### Configuration Solution
+
+```typescript
+// For Tron-adapted Safe contracts
+signatureCompatibility: {
+  useEthereumPrefix: false,  // Use native Tron signing
+  adjustVValue: true,        // Ensure v is 27/28
+}
+
+// For unmodified Ethereum Safe contracts
+signatureCompatibility: {
+  useEthereumPrefix: true,   // Try to be Ethereum-compatible
+  adjustVValue: true,
+}
+```
+
+### Key Takeaways
+
+1. **Ask the Right Questions**: When user mentioned "Safe contract that accepts TronWeb signature", it revealed they had already adapted Safe for Tron
+2. **Don't Over-Engineer**: Initial attempts to force compatibility were unnecessary - the user's Safe was already Tron-compatible
+3. **Make It Configurable**: Different deployments need different approaches
+4. **Test on Real Networks**: Mock testing hides critical issues
+5. **Document Clearly**: Users need to know which mode to use for their specific Safe deployment

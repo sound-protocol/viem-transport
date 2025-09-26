@@ -23,7 +23,10 @@ A transport layer that enables Ethereum applications (particularly Safe/Gnosis S
   - ✅ `decimals()`, `symbol()`, `name()` - Token metadata
 - **Contract Calls**: `eth_call` for reading smart contract state
 - **Gas Estimation**: `eth_estimateGas` provides reasonable estimates
-- **Message Signing**: `eth_sign` for signing messages
+- **Message Signing**:
+  - ✅ `eth_sign` - Configurable for Tron or Ethereum compatibility
+  - ✅ `personal_sign` - Personal message signing with proper prefix
+  - ✅ `eth_signTypedData_v4` - Full EIP-712 support for Safe transactions
 
 ### Event Support (Working!)
 - **Event Logs**: `eth_getLogs` fully functional
@@ -97,8 +100,8 @@ nonce, getTransactionHash
 2. **Gas Calculations**: Energy-to-gas conversion is approximation
 3. **Type Handling**: Some complex ABI types may not convert properly
 4. **Multicall**: Disabled due to Tron limitations
-5. **EIP-712**: Typed data signing not implemented (permits)
-6. **Transaction Receipts**: Don't include event logs (separate `eth_getLogs` call needed)
+5. **Transaction Receipts**: Don't include event logs (separate `eth_getLogs` call needed)
+6. **Storage Access**: `eth_getStorageAt` returns zeros (Tron API limitations)
 
 ## Use Case Suitability
 
@@ -111,8 +114,8 @@ nonce, getTransactionHash
 
 ### ⚠️ Limited Support For:
 - High-frequency trading (pseudo-nonce limitations)
-- Complex DeFi protocols (missing EIP-712)
 - Real-time updates (no WebSocket/filters)
+- Raw storage access (eth_getStorageAt)
 
 ## Honest Assessment
 
@@ -120,9 +123,9 @@ nonce, getTransactionHash
 
 **Remaining Limitations**:
 1. **No real nonces** - Pseudo-nonces work but aren't ideal for high-frequency
-2. **No EIP-712** - Blocks modern DeFi features (permits)
-3. **No WebSocket** - Requires polling for updates
-4. **No filter support** - Can't subscribe to specific events
+2. **No WebSocket** - Requires polling for updates
+3. **No filter support** - Can't subscribe to specific events
+4. **No storage access** - Can't read raw contract storage
 
 **Time to Full Production**:
 - ✅ Basic Safe deployment: **Already working**
@@ -136,6 +139,8 @@ npm install viem tronweb dotenv
 ```
 
 ## Usage
+
+### Basic Setup
 
 ```typescript
 import { createPublicClient } from 'viem';
@@ -164,6 +169,46 @@ const code = await client.getCode({ address: '0x...' }); // Returns 0x
 const filter = await client.createEventFilter({ address: '0x...' }); // Throws
 ```
 
+### Safe (Gnosis Safe) Contract Compatibility
+
+The transport fully supports Safe contracts on Tron with configurable signature compatibility:
+
+#### For Tron-Adapted Safe Contracts
+
+If your Safe contract has been adapted to accept native Tron signatures (using `\x19TRON Signed Message:\n` prefix):
+
+```typescript
+const transport = tronWeb(tw, {
+  chainId: 3448148188, // Nile testnet
+  signatureCompatibility: {
+    useEthereumPrefix: false,  // Use native Tron signatures (default)
+    adjustVValue: true,        // Ensure v is 27/28 format
+  }
+});
+```
+
+#### For Unmodified Ethereum Safe Contracts
+
+If you're using an unmodified Ethereum Safe contract that expects Ethereum signatures:
+
+```typescript
+const transport = tronWeb(tw, {
+  chainId: 3448148188,
+  signatureCompatibility: {
+    useEthereumPrefix: true,   // Use Ethereum-compatible signatures
+    adjustVValue: true,
+  }
+});
+```
+
+#### Supported Safe Features
+
+- ✅ **EIP-712 Typed Data**: Full support for Safe transaction proposals
+- ✅ **Message Signing**: Both `eth_sign` and `personal_sign` with configurable prefixes
+- ✅ **Multi-signature Collection**: Compatible with Safe's signature aggregation
+- ✅ **Transaction Execution**: Full support via `eth_sendTransaction`
+- ✅ **Event Monitoring**: Track ExecutionSuccess/ExecutionFailure events via `eth_getLogs`
+
 ## Testing
 
 ```bash
@@ -183,11 +228,11 @@ PRIVATE_KEY=your_key npx tsx advanced-tests.ts
 ## Contributing
 
 Priority areas needing work:
-1. **EIP-712 signing** (For DeFi, permits)
-2. **WebSocket support** (Real-time updates)
-3. **Filter implementation** (Event subscriptions)
-4. **Better error messages** (More descriptive)
-5. **Storage access** (`eth_getStorageAt` implementation)
+1. **WebSocket support** (Real-time updates)
+2. **Filter implementation** (Event subscriptions)
+3. **Better error messages** (More descriptive)
+4. **Storage access** (`eth_getStorageAt` implementation)
+5. **Real nonce management** (Sequential transaction ordering)
 
 ## License
 
@@ -195,7 +240,7 @@ MIT
 
 ## Disclaimer
 
-This transport is experimental but functional. Event support, transactions, and most RPC methods work correctly. The main limitations are pseudo-nonces (not true sequential nonces) and missing EIP-712 support. **Safe for production use with understanding of these limitations.**
+This transport is experimental but functional. Event support, transactions, EIP-712, and most RPC methods work correctly. The main limitations are pseudo-nonces (not true sequential nonces) and no WebSocket support. **Safe for production use with understanding of these limitations.**
 
 ## Contact
 

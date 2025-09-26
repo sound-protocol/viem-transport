@@ -40,6 +40,26 @@ export type TronWebTransportConfig = {
     /** Custom signer invoked before broadcasting. */
     signer?: TronWebSigner | undefined;
   };
+  /** Signature compatibility configuration for cross-chain contracts. */
+  signatureCompatibility?: {
+    /**
+     * Use Ethereum-compatible signing prefix for all message signatures.
+     * Set to TRUE for: Ethereum Safe contracts deployed without modifications
+     * Set to FALSE for: Tron-adapted Safe contracts that expect Tron signatures
+     * Default: false (use native Tron signing)
+     */
+    useEthereumPrefix?: boolean;
+    /**
+     * Automatically adjust v values to Ethereum format (27/28 instead of 0/1).
+     * Default: true
+     */
+    adjustVValue?: boolean;
+    /**
+     * Support dual verification (try both TRON and Ethereum prefixes).
+     * Default: false (for performance)
+     */
+    supportDualVerification?: boolean;
+  };
 };
 
 export type TronWebTransport = Transport<
