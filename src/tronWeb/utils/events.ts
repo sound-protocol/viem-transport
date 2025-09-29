@@ -3,6 +3,7 @@ import type { TronWebLike } from "../types";
 import { strip0x, toHex } from "./hex";
 import { tronAddressTo0x } from "./address";
 import { ZERO_ADDRESS } from "../constants";
+import { SAFE_EVENTS } from "./safe-events";
 
 export function convertEventTopics(event: any): string[] {
   const topics: string[] = [];
@@ -33,10 +34,18 @@ export function convertEventTopics(event: any): string[] {
       topics.push(keccak256(viemToHex(canonicalSig)));
     }
   } else if (event.event_name) {
-    // Fallback: if we only have event_name, try common signatures
-    if (event.event_name === "Transfer") {
+    // Check Safe events registry first
+    const safeEvent = Object.values(SAFE_EVENTS).find(
+      e => e.signature.startsWith(event.event_name + '(')
+    );
+
+    if (safeEvent) {
+      topics.push(safeEvent.topic);
+    } else if (event.event_name === "Transfer") {
+      // ERC-20 Transfer
       topics.push("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
     } else if (event.event_name === "Approval") {
+      // ERC-20 Approval
       topics.push("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925");
     } else {
       // For unknown events, compute hash of just the name (not ideal but better than raw name)

@@ -115,3 +115,41 @@ export type { TronWebTransportConfig, TronWebSigner, TronWebSignerContext } from
 export * from "./utils/address";
 export * from "./utils/hex";
 export { ZERO_ADDRESS, DEFAULT_FEE_LIMIT, TRON_HEX_PREFIX, BASE58_REGEX } from "./constants";
+
+// Export transaction confirmation utilities
+export {
+  waitForTransactionReceipt,
+  getTransactionConfirmations,
+  isTransactionConfirmed,
+  ConfirmationTimeoutError,
+  TransactionNotFoundError,
+  TransactionRevertedError,
+  type WaitForReceiptOptions,
+  type TransactionReceipt,
+} from "./utils/confirmation";
+
+// Export signature validation utilities
+export {
+  validateSignature,
+  validateTypedDataSignature,
+  validateSignatureBothModes,
+  createTestSignature,
+  formatValidationResult,
+  type SignatureMode,
+  type SignatureValidationResult,
+} from "./utils/signature-validation";
+
+// Export Safe event utilities
+export {
+  SAFE_EVENTS,
+  pollSafeEvents,
+  parseSafeEvent,
+  identifySafeEvent,
+  getSafeEventTopics,
+  getSafeTransactionStatus,
+  getSafeTransactionSignatures,
+  clearSafeEventCache,
+  computeEventTopic,
+  type SafeEventName,
+  type ParsedSafeEvent,
+} from "./utils/safe-events";

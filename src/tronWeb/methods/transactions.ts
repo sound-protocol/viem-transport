@@ -366,3 +366,15 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, getChain
 // Additional signing methods for completeness
 export const eth_signTypedData: MethodHandler = eth_signTypedData_v4;
 export const eth_signTypedData_v3: MethodHandler = eth_signTypedData_v4;
+
+// Re-export confirmation utilities for convenience
+export {
+  waitForTransactionReceipt,
+  getTransactionConfirmations,
+  isTransactionConfirmed,
+  ConfirmationTimeoutError,
+  TransactionNotFoundError,
+  TransactionRevertedError,
+  type WaitForReceiptOptions,
+  type TransactionReceipt,
+} from "../utils/confirmation";

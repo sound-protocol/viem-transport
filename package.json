@@ -26,7 +26,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "bottleneck": "^2.19.5",
     "dotenv": "^17.2.2",
+    "p-retry": "^7.0.0",
     "tronweb": "^6.0.4",
     "viem": "^2.37.8"
   },
