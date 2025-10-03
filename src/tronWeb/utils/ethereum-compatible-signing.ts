@@ -45,12 +45,13 @@ export async function signWithEthereumPrefix(
 
 /**
  * Ensures the signature is in Ethereum-compatible format
- * with v value as 27 or 28 (not 0 or 1).
+ * with v value as 27 or 28 (not 0 or 1), and applies optional offset.
  *
  * @param signature - Raw signature from TronWeb
+ * @param vOffset - Optional offset to add to v value (default: 0)
  * @returns Formatted signature for Ethereum
  */
-export function ensureEthereumSignatureFormat(signature: string): string {
+export function ensureEthereumSignatureFormat(signature: string, vOffset: number = 0): string {
   const sigBytes = Buffer.from(signature.replace('0x', ''), 'hex');
 
   if (sigBytes.length !== 65) {
@@ -67,6 +68,9 @@ export function ensureEthereumSignatureFormat(signature: string): string {
   if (v < 27) {
     v += 27;
   }
+
+  // Apply custom offset (e.g., +4 for Tron Safe compressed keys)
+  v += vOffset;
 
   // Reconstruct the signature
   const formattedSig = Buffer.concat([r, s, Buffer.from([v])]);
@@ -114,6 +118,12 @@ export interface SignatureCompatibilityConfig {
   adjustVValue: boolean;
 
   /**
+   * Offset to add to v value (e.g., 4 for Tron Safe compressed keys)
+   * Default: 0
+   */
+  vValueOffset: number;
+
+  /**
    * Whether to support dual verification (try both TRON and Ethereum prefixes)
    * Default: false (for performance)
    */
@@ -126,6 +136,7 @@ export interface SignatureCompatibilityConfig {
 export const DEFAULT_COMPATIBILITY_CONFIG: SignatureCompatibilityConfig = {
   useEthereumPrefix: false,  // Use native Tron signing by default
   adjustVValue: true,
+  vValueOffset: 0,  // Standard Ethereum format (v = 27/28)
   supportDualVerification: false,
 };
 
@@ -137,9 +148,16 @@ export async function signMessageWithConfig(
   message: string | Uint8Array,
   config: SignatureCompatibilityConfig = DEFAULT_COMPATIBILITY_CONFIG
 ): Promise<string> {
+  const vOffset = config.vValueOffset ?? 0;
+
   if (config.useEthereumPrefix) {
     // Use Ethereum-compatible signing
-    return await signWithEthereumPrefix(tw, message);
+    const sig = await signWithEthereumPrefix(tw, message);
+    // Apply v offset if needed
+    if (vOffset !== 0) {
+      return ensureEthereumSignatureFormat(sig, vOffset);
+    }
+    return sig;
   } else {
     // Use default TRON signing
     const messageBytes = typeof message === 'string'
@@ -149,7 +167,12 @@ export async function signMessageWithConfig(
     const signature = await tw.trx.signMessageV2(messageBytes);
 
     if (config.adjustVValue) {
-      return ensureEthereumSignatureFormat(signature);
+      return ensureEthereumSignatureFormat(signature, vOffset);
+    }
+
+    // Apply v offset even if adjustVValue is false
+    if (vOffset !== 0) {
+      return ensureEthereumSignatureFormat(signature, vOffset);
     }
 
     return signature;

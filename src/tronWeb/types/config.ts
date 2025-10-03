@@ -55,6 +55,30 @@ export type TronWebTransportConfig = {
      */
     adjustVValue?: boolean;
     /**
+     * Offset to add to v value for signature compatibility.
+     *
+     * Use cases:
+     * - 0: Standard Ethereum signatures (v = 27/28) - DEFAULT
+     * - 4: Tron Safe with compressed keys (v = 31/32)
+     *
+     * Technical background:
+     * - TronWeb's signMessageV2 returns v = 27 or 28 (standard ECDSA)
+     * - Some Tron Safe contracts expect v = 31/32 (compressed public key format, BIP-137)
+     * - This offset is applied AFTER signature generation: final_v = original_v + offset
+     *
+     * Example:
+     * ```typescript
+     * // Standard Ethereum Safe (v = 27/28)
+     * signatureCompatibility: { vValueOffset: 0 }
+     *
+     * // Tron Safe with compressed keys (v = 31/32)
+     * signatureCompatibility: { vValueOffset: 4 }
+     * ```
+     *
+     * Default: 0 (standard Ethereum format)
+     */
+    vValueOffset?: number;
+    /**
      * Support dual verification (try both TRON and Ethereum prefixes).
      * Default: false (for performance)
      */

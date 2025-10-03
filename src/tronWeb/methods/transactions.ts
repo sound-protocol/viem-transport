@@ -316,7 +316,7 @@ export const personal_sign: MethodHandler = async (params, { tw }) => {
 };
 
 // eth_signTypedData_v4 for EIP-712 structured data signing
-export const eth_signTypedData_v4: MethodHandler = async (params, { tw, getChainIdHex }) => {
+export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, getChainIdHex }) => {
   const address = params[0];
   const typedDataJson = params[1];
 
@@ -348,15 +348,25 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, getChain
     // Sign the EIP-712 digest
     const signature = await tw.trx.signMessageV2(digestBytes);
 
-    // Format the signature
+    // Extract string signature
+    let sigString: string;
     if (typeof signature === 'string') {
-      return to0x(signature);
+      sigString = signature;
     } else if (signature && typeof signature === 'object') {
-      const sig = signature.signature || signature;
-      return to0x(sig);
+      sigString = signature.signature || signature;
+    } else {
+      throw new Error('Invalid signature format from TronWeb');
     }
 
-    throw new Error('Invalid signature format from TronWeb');
+    // Apply v value offset if configured (e.g., +4 for Tron Safe compressed keys)
+    const vOffset = config?.signatureCompatibility?.vValueOffset ?? 0;
+    if (vOffset !== 0) {
+      // Import signature formatting utility
+      const { ensureEthereumSignatureFormat } = await import("../utils/ethereum-compatible-signing");
+      return ensureEthereumSignatureFormat(sigString, vOffset);
+    }
+
+    return to0x(sigString);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     throw new Error(`eth_signTypedData_v4 failed: ${msg}`);
