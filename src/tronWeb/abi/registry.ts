@@ -55,4 +55,7 @@ export const FUNCTION_REGISTRY: Record<string, FunctionInfo> = {
   // Safe Contract Functions - Storage
   'bd79b86d': { signature: 'getStorageAt(uint256,uint256)', params: ['uint256', 'uint256'] },
   '93271368': { signature: 'simulateAndRevert(address,bytes)', params: ['address', 'bytes'] },
+
+  // Safe Proxy Factory Functions
+  '1688f0b9': { signature: 'createProxyWithNonce(address,bytes,uint256)', params: ['address', 'bytes', 'uint256'] },
 };
