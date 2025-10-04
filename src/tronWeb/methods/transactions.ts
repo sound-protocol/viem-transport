@@ -127,29 +127,58 @@ export const eth_sendTransaction: MethodHandler = async (params, { tw, config })
       const parsedCall = parseCallData(rawParameter);
 
       if (parsedCall) {
-        // We recognized the function - use dynamic processing
-        const { functionInfo, params } = parsedCall;
-        const tronParams = convertParamsToTron(params, tw);
-
-        // Log function call for debugging (if needed)
-        if (process.env.DEBUG_TRANSPORT) {
-          console.debug(`Calling ${functionInfo.signature} with params:`, tronParams);
-        }
-
-        const trigger = await tw.transactionBuilder.triggerSmartContract(
-          contractBase58,
-          functionInfo.signature,
-          options,
-          tronParams,
-          sender.base58,
+        // Check for complex types (bytes, arrays) that need rawParameter mode
+        const hasComplexTypes = parsedCall.functionInfo.params.some(p =>
+          p === 'bytes' || p.includes('[]') || p.startsWith('bytes[')
         );
 
-        if (!trigger?.transaction || trigger?.result?.result === false) {
-          const message = extractTronErrorMessage(trigger);
-          const reason = message ?? "failed to build Tron transaction";
-          throw new Error(`eth_sendTransaction ${functionInfo.signature} failed: ${reason}`);
+        if (hasComplexTypes) {
+          // Complex types: use rawParameter mode for safety and reliability
+          // TronWeb handles ABI decoding internally for dynamic types
+          if (process.env.DEBUG_TRANSPORT) {
+            console.debug(`Function ${parsedCall.functionInfo.signature} has complex types (bytes/arrays), using rawParameter mode`);
+          }
+
+          options.rawParameter = rawParameter;
+          const trigger = await tw.transactionBuilder.triggerSmartContract(
+            contractBase58,
+            "",
+            options,
+            [],
+            sender.base58,
+          );
+
+          if (!trigger?.transaction || trigger?.result?.result === false) {
+            const message = extractTronErrorMessage(trigger);
+            const reason = message ?? "failed to build Tron transaction";
+            throw new Error(`eth_sendTransaction (complex types) failed: ${reason}`);
+          }
+          transaction = trigger.transaction;
+        } else {
+          // Simple types only: use parsed params for better error messages
+          const { functionInfo, params } = parsedCall;
+          const tronParams = convertParamsToTron(params, tw);
+
+          // Log function call for debugging (if needed)
+          if (process.env.DEBUG_TRANSPORT) {
+            console.debug(`Calling ${functionInfo.signature} with params:`, tronParams);
+          }
+
+          const trigger = await tw.transactionBuilder.triggerSmartContract(
+            contractBase58,
+            functionInfo.signature,
+            options,
+            tronParams,
+            sender.base58,
+          );
+
+          if (!trigger?.transaction || trigger?.result?.result === false) {
+            const message = extractTronErrorMessage(trigger);
+            const reason = message ?? "failed to build Tron transaction";
+            throw new Error(`eth_sendTransaction ${functionInfo.signature} failed: ${reason}`);
+          }
+          transaction = trigger.transaction;
         }
-        transaction = trigger.transaction;
       } else {
         // Unrecognized function - fall back to raw parameter
         // This allows new functions to still work without explicit support

@@ -82,12 +82,30 @@ export function parseCallData(rawParameter: string): ParsedCallData | null {
 
 export function convertParamsToTron(params: ParsedParam[], tw: TronWebLike): any[] {
   return params.map(param => {
+    // Convert addresses from EVM to Tron base58
     if (param.type === 'address' && typeof param.value === 'string') {
       const ethAddress = `0x${param.value}` as Address;
       const tronAddress = tronBase58FromEvm(tw, ethAddress);
-      return { type: 'address', value: tronAddress };
+      // TronWeb expects plain values, not {type, value} objects
+      return tronAddress;
     }
-    return param;
+
+    // Convert uint256 hex strings to numbers
+    if (param.type === 'uint256' && typeof param.value === 'string') {
+      // Parse hex string to number
+      // For very large numbers, keep as hex string (TronWeb handles both)
+      const hexValue = param.value.startsWith('0x') ? param.value.slice(2) : param.value;
+      const bigIntValue = BigInt('0x' + hexValue);
+      // If it fits in a safe integer, return as number, otherwise as string
+      if (bigIntValue <= BigInt(Number.MAX_SAFE_INTEGER)) {
+        return Number(bigIntValue);
+      }
+      return bigIntValue.toString();
+    }
+
+    // Return plain value for all other types
+    // (uint8 is already a number, bytes is already a string, etc.)
+    return param.value;
   });
 }
 
