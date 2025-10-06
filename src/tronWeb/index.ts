@@ -153,3 +153,10 @@ export {
   type SafeEventName,
   type ParsedSafeEvent,
 } from "./utils/safe-events";
+
+// Export Tron account utilities for Protocol Kit compatibility
+export {
+  createTronAccount,
+  createTronAccountFromTronWeb,
+  isTronAccount,
+} from "./utils/tron-account";
