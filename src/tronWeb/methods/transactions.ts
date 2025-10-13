@@ -344,6 +344,22 @@ export const personal_sign: MethodHandler = async (params, { tw }) => {
   }
 };
 
+/**
+ * Detect if typed data is a Safe transaction by checking the primaryType and types structure
+ */
+function isSafeTransaction(typedData: any): boolean {
+  if (typedData.primaryType !== 'SafeTx') return false;
+
+  const safeFields = ['to', 'value', 'data', 'operation', 'safeTxGas', 'baseGas', 'gasPrice', 'gasToken', 'refundReceiver', 'nonce'];
+  const txTypes = typedData.types?.SafeTx;
+
+  if (!Array.isArray(txTypes) || txTypes.length !== safeFields.length) return false;
+
+  return safeFields.every(field =>
+    txTypes.some((t: any) => t.name === field)
+  );
+}
+
 // eth_signTypedData_v4 for EIP-712 structured data signing
 export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, getChainIdHex }) => {
   const address = params[0];
@@ -362,10 +378,122 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, 
     // Parse and validate the typed data
     const typedData = parseTypedData(typedDataJson);
 
+    // SPECIAL CASE: Safe Transaction Signing
+    // Safe contracts store their own chain ID at deployment time, which may differ
+    // from the configured chain ID (especially for pre-TIP-474 Tron nodes).
+    // Instead of trying to reconstruct the EIP-712 hash, we should ask the Safe
+    // contract directly for the transaction hash via getTransactionHash().
+    if (isSafeTransaction(typedData) && typedData.domain.verifyingContract) {
+      try {
+        // Safe contract ABI for getTransactionHash()
+        const safeAbi = [{
+          "constant": true,
+          "inputs": [
+            { "name": "to", "type": "address" },
+            { "name": "value", "type": "uint256" },
+            { "name": "data", "type": "bytes" },
+            { "name": "operation", "type": "uint8" },
+            { "name": "safeTxGas", "type": "uint256" },
+            { "name": "baseGas", "type": "uint256" },
+            { "name": "gasPrice", "type": "uint256" },
+            { "name": "gasToken", "type": "address" },
+            { "name": "refundReceiver", "type": "address" },
+            { "name": "_nonce", "type": "uint256" }
+          ],
+          "name": "getTransactionHash",
+          "outputs": [{ "name": "", "type": "bytes32" }],
+          "payable": false,
+          "stateMutability": "view",
+          "type": "function"
+        }];
+
+        // Convert verifying contract (Safe address) to base58
+        const safeBase58 = tronBase58FromEvm(tw, typedData.domain.verifyingContract as string);
+
+        // Create Safe contract instance
+        const safeContract = await tw.contract(safeAbi, safeBase58);
+
+        // Get transaction hash from Safe contract (uses Safe's internal chain ID)
+        const message = typedData.message;
+        const txHash = await safeContract.getTransactionHash(
+          message.to,
+          message.value,
+          message.data,
+          message.operation,
+          message.safeTxGas,
+          message.baseGas,
+          message.gasPrice,
+          message.gasToken,
+          message.refundReceiver,
+          message.nonce
+        ).call();
+
+        // Extract hash (TronWeb may return object with txHash property)
+        const hashToSign = txHash.txHash || txHash;
+
+        // Convert to bytes for signing
+        const hashBytes = Buffer.from(strip0x(hashToSign), 'hex');
+
+        // Sign the hash directly with raw ECDSA
+        const { signEcdsa } = await import("../utils/signing");
+        const signature = await signEcdsa(tw, hashBytes);
+
+        // Extract string signature
+        let sigString: string;
+        if (typeof signature === 'string') {
+          sigString = signature;
+        } else if (signature && typeof signature === 'object') {
+          sigString = (signature as any).signature || signature;
+        } else {
+          throw new Error('Invalid signature format from TronWeb');
+        }
+
+        // Apply v value offset if configured
+        const vOffset = config?.signatureCompatibility?.vValueOffset ?? 0;
+        if (vOffset !== 0) {
+          const { ensureEthereumSignatureFormat } = await import("../utils/ethereum-compatible-signing");
+          return ensureEthereumSignatureFormat(sigString, vOffset);
+        }
+
+        return to0x(sigString);
+      } catch (safeError) {
+        // If Safe-specific signing fails, fall through to standard EIP-712 signing
+        console.warn('Safe transaction hash query failed, falling back to standard EIP-712:', safeError);
+      }
+    }
+
+    // STANDARD EIP-712 SIGNING (non-Safe contracts or fallback)
     // Add chainId to domain if not present
     if (!typedData.domain.chainId) {
-      const chainIdHex = getChainIdHex();
-      typedData.domain.chainId = parseInt(chainIdHex, 16);
+      if (typedData.domain.verifyingContract) {
+        try {
+          // Try to query contract's chain ID
+          const minimalAbi = [{
+            "constant": true,
+            "inputs": [],
+            "name": "getChainId",
+            "outputs": [{ "name": "", "type": "uint256" }],
+            "payable": false,
+            "stateMutability": "view",
+            "type": "function"
+          }];
+
+          const contractBase58 = tronBase58FromEvm(tw, typedData.domain.verifyingContract as string);
+
+          const contract = await tw.contract(minimalAbi, contractBase58);
+          const onChainChainId = await contract.getChainId().call();
+
+          typedData.domain.chainId = onChainChainId.toString();
+        } catch (error) {
+          // Fall back to configured chain ID
+          const chainIdHex = getChainIdHex();
+          typedData.domain.chainId = parseInt(chainIdHex, 16);
+        }
+      } else {
+        // No verifying contract, use configured chain ID
+        const chainIdHex = getChainIdHex();
+        typedData.domain.chainId = parseInt(chainIdHex, 16);
+      }
     }
 
     // Create the EIP-712 digest
@@ -374,23 +502,23 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, 
     // Convert digest to bytes for signing
     const digestBytes = Buffer.from(strip0x(digest), 'hex');
 
-    // Sign the EIP-712 digest
-    const signature = await tw.trx.signMessageV2(digestBytes);
+    // Sign the EIP-712 digest DIRECTLY without message prefix
+    const { signEcdsa } = await import("../utils/signing");
+    const signature = await signEcdsa(tw, digestBytes);
 
     // Extract string signature
     let sigString: string;
     if (typeof signature === 'string') {
       sigString = signature;
     } else if (signature && typeof signature === 'object') {
-      sigString = signature.signature || signature;
+      sigString = (signature as any).signature || signature;
     } else {
       throw new Error('Invalid signature format from TronWeb');
     }
 
-    // Apply v value offset if configured (e.g., +4 for Tron Safe compressed keys)
+    // Apply v value offset if configured
     const vOffset = config?.signatureCompatibility?.vValueOffset ?? 0;
     if (vOffset !== 0) {
-      // Import signature formatting utility
       const { ensureEthereumSignatureFormat } = await import("../utils/ethereum-compatible-signing");
       return ensureEthereumSignatureFormat(sigString, vOffset);
     }
