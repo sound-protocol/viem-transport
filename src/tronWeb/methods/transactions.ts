@@ -6,7 +6,7 @@ import { assertAddress, resolveFromAddress, tronBase58FromEvm } from "../utils/a
 import { toSun, resolveFeeLimit, toOptionalNumber } from "../utils/numeric";
 import { isPlainObject } from "../utils/validation";
 import { extractTronErrorMessage } from "../utils/errors";
-import { parseCallData, convertParamsToTron } from "../abi/parser";
+import { parseCallData, convertParamsToTron } from "../abi";
 import { signTransaction } from "../utils/signing";
 import { DEFAULT_FEE_LIMIT } from "../constants";
 import {
@@ -16,12 +16,156 @@ import {
   SignatureCompatibilityConfig
 } from "../utils/ethereum-compatible-signing";
 
-export const eth_sendRawTransaction: MethodHandler = async (params, { tw }) => {
-  const raw = strip0x(params[0] as string);
-  const res = await tw.trx.sendRawTransaction(raw);
-  const txid = res?.txid ?? res?.transaction?.txID;
-  if (!txid) throw new Error("sendRawTransaction: unexpected response");
-  return to0x(txid);
+export const eth_sendRawTransaction: MethodHandler = async (params, { tw, config }) => {
+  const rawTxHex = params[0] as string;
+
+  try {
+    // Import viem's transaction parsing utilities
+    const { parseTransaction } = await import('viem');
+
+    // Decode the Ethereum RLP-encoded transaction
+    const decodedTx = parseTransaction(rawTxHex as `0x${string}`);
+
+    console.log('🔵 eth_sendRawTransaction: Decoded Ethereum transaction');
+    console.log('   To:', decodedTx.to);
+    console.log('   Value:', decodedTx.value);
+    console.log('   Data:', decodedTx.data ? `${decodedTx.data.substring(0, 20)}...` : 'none');
+    console.log('   Gas:', decodedTx.gas);
+
+    // Ensure we have a from address (signer)
+    const sender = resolveFromAddress(tw, config, decodedTx.from, {
+      method: "eth_sendRawTransaction",
+      property: "transaction.from",
+      allowZeroFallback: false,
+    });
+
+    // Extract transaction parameters
+    // Note: Tron's feeLimit needs to be much higher than Ethereum gas estimates
+    // Use at least 10x the gas estimate, or DEFAULT_FEE_LIMIT, whichever is higher
+    const estimatedGas = decodedTx.gas ? Number(decodedTx.gas) : 0;
+    const minFeeLimit = Math.max(estimatedGas * 10, DEFAULT_FEE_LIMIT);
+    const feeLimit = minFeeLimit;
+    const valueSun = decodedTx.value ? Number(decodedTx.value) : 0;
+    const dataHex = decodedTx.data ?? "0x";
+    const hasData = strip0x(dataHex).length > 0;
+
+    let transaction: TronTransaction;
+
+    if (hasData && decodedTx.to) {
+      // Contract interaction
+      const toAddress = assertAddress(tw, decodedTx.to, {
+        method: "eth_sendRawTransaction",
+        parameter: 0,
+        property: "transaction.to",
+      });
+      const contractBase58 = tronBase58FromEvm(tw, toAddress);
+      const options: Record<string, any> = { feeLimit };
+      if (valueSun > 0) options.callValue = valueSun;
+
+      // Parse function call data
+      const rawParameter = strip0x(dataHex);
+      const parsedCall = parseCallData(rawParameter);
+
+      if (parsedCall) {
+        // Recognized function - use dynamic processing
+        const { functionInfo, params } = parsedCall;
+        const tronParams = convertParamsToTron(params, tw);
+
+        console.log(`   Calling ${functionInfo.signature}`);
+
+        const trigger = await tw.transactionBuilder.triggerSmartContract(
+          contractBase58,
+          functionInfo.signature,
+          options,
+          tronParams,
+          sender.base58,
+        );
+
+        if (!trigger?.transaction || trigger?.result?.result === false) {
+          const message = extractTronErrorMessage(trigger);
+          const reason = message ?? "failed to build Tron transaction";
+          throw new Error(`eth_sendRawTransaction ${functionInfo.signature} failed: ${reason}`);
+        }
+        transaction = trigger.transaction;
+      } else {
+        // Unrecognized function - use raw parameter
+        options.rawParameter = rawParameter;
+        const trigger = await tw.transactionBuilder.triggerSmartContract(
+          contractBase58,
+          "",
+          options,
+          [],
+          sender.base58,
+        );
+
+        if (!trigger?.transaction || trigger?.result?.result === false) {
+          const message = extractTronErrorMessage(trigger);
+          const reason = message ?? "failed to build Tron transaction";
+          throw new Error(`eth_sendRawTransaction preparation failed: ${reason}`);
+        }
+        transaction = trigger.transaction;
+      }
+    } else if (decodedTx.to && valueSun > 0) {
+      // Simple TRX transfer
+      const toAddress = assertAddress(tw, decodedTx.to, {
+        method: "eth_sendRawTransaction",
+        parameter: 0,
+        property: "transaction.to",
+      });
+      const recipientBase58 = tronBase58FromEvm(tw, toAddress);
+      transaction = await tw.transactionBuilder.sendTrx(
+        recipientBase58,
+        valueSun,
+        sender.base58,
+        { feeLimit },
+      );
+    } else {
+      throw new Error("eth_sendRawTransaction: invalid transaction (no data or value)");
+    }
+
+    // Sign the transaction
+    const context = { method: "eth_sendRawTransaction", params };
+    const signedTx = await signTransaction(tw, config, transaction, context);
+    const preparedTx = signedTx ?? transaction;
+
+    if (
+      !preparedTx ||
+      !Array.isArray(preparedTx.signature) ||
+      preparedTx.signature.length === 0
+    ) {
+      throw new Error("eth_sendRawTransaction signing failed: missing signature.");
+    }
+
+    // Broadcast the signed Tron transaction
+    console.log('   Broadcasting transaction...');
+    const broadcast = await tw.trx.sendRawTransaction(preparedTx);
+
+    if (!broadcast?.result) {
+      const message = extractTronErrorMessage(broadcast);
+      const reason = message ?? "broadcast rejected";
+      throw new Error(`eth_sendRawTransaction broadcast failed: ${reason}`);
+    }
+
+    const txid =
+      typeof broadcast.txid === "string" && broadcast.txid.length > 0
+        ? broadcast.txid
+        : typeof preparedTx.txID === "string" && preparedTx.txID.length > 0
+          ? preparedTx.txID
+          : typeof preparedTx.txId === "string" && preparedTx.txId.length > 0
+            ? preparedTx.txId
+            : undefined;
+
+    if (!txid) {
+      throw new Error("eth_sendRawTransaction broadcast succeeded but no transaction id was returned.");
+    }
+
+    console.log('   ✅ Transaction broadcast successful:', to0x(txid));
+    return to0x(txid);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('   ❌ eth_sendRawTransaction failed:', msg);
+    throw new Error(`eth_sendRawTransaction failed: ${msg}`);
+  }
 };
 
 export const eth_getTransactionReceipt: MethodHandler = async (params, { tw }) => {

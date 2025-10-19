@@ -26,8 +26,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@safe-global/protocol-kit": "^6.1.1",
+    "@safe-global/safe-ethers-lib": "^1.9.4",
     "bottleneck": "^2.19.5",
     "dotenv": "^17.2.2",
+    "ethers": "^5.8.0",
     "p-retry": "^7.0.0",
     "tronweb": "^6.0.4",
     "viem": "^2.37.8"

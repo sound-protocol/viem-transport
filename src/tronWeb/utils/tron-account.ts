@@ -9,6 +9,7 @@
 import { toAccount } from 'viem/accounts';
 import type { Address, Account } from 'viem';
 import type { TronWebLike } from '../types';
+import { tronHex41To0x } from './address';
 
 /**
  * Creates a JSON-RPC style account from a Tron address
@@ -107,13 +108,22 @@ export function createTronAccount(address: Address): Account {
  * ```
  */
 export function createTronAccountFromTronWeb(tw: TronWebLike): Account {
-  // Get the default address from TronWeb
-  const address = tw.defaultAddress?.hex as Address;
+  // Get the default address from TronWeb (returns 41-prefixed hex)
+  const tronHex41 = tw.defaultAddress?.hex;
 
-  if (!address) {
+  if (!tronHex41) {
     throw new Error(
       'TronWeb instance does not have a default address. ' +
       'Ensure TronWeb is initialized with a private key or default address.'
+    );
+  }
+
+  // Convert from Tron 41-prefixed hex to standard 0x format (20 bytes)
+  const address = tronHex41To0x(tronHex41);
+
+  if (!address) {
+    throw new Error(
+      `Failed to convert TronWeb address to EVM format. Got: ${tronHex41}`
     );
   }
 
