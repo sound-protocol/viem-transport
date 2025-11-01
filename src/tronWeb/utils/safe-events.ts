@@ -1,7 +1,7 @@
-import type { TronWebLike } from "../types";
-import { strip0x, to0x } from "./hex";
-import { toHex } from "./hex";
-import { keccak256 } from "./eip712";
+import type { TronWebLike } from '../types';
+import { strip0x, to0x } from './hex';
+import { toHex } from './hex';
+import { keccak256 } from 'viem';
 
 /**
  * Safe (Gnosis Safe) contract events registry
