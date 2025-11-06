@@ -20,15 +20,6 @@
     "README.md"
   ],
   "keywords": [
-    "tron",
-    "tronweb",
-    "viem",
-    "ethereum",
-    "blockchain",
-    "rpc",
-    "transport",
-    "safe",
-    "gnosis-safe"
   ],
   "scripts": {
     "build": "tsup src/tronWeb/index.ts --format cjs,esm --dts --clean",
