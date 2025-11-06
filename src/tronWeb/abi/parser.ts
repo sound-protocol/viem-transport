@@ -1,6 +1,6 @@
-import type { Address, FunctionInfo, ParsedCallData, ParsedParam, TronWebLike } from "../types";
-import { FUNCTION_REGISTRY } from "./registry";
-import { tronBase58FromEvm } from "../utils/address";
+import type {Address, ParsedCallData, ParsedParam, TronWebLike} from "../types";
+import {FUNCTION_REGISTRY} from "./registry";
+import {tronBase58FromEvm} from "../utils/address";
 
 export function parseCallData(rawParameter: string): ParsedCallData | null {
   if (rawParameter.length < 8) return null;
@@ -85,9 +85,8 @@ export function convertParamsToTron(params: ParsedParam[], tw: TronWebLike): any
     // Convert addresses from EVM to Tron base58
     if (param.type === 'address' && typeof param.value === 'string') {
       const ethAddress = `0x${param.value}` as Address;
-      const tronAddress = tronBase58FromEvm(tw, ethAddress);
       // TronWeb expects plain values, not {type, value} objects
-      return tronAddress;
+      return tronBase58FromEvm(tw, ethAddress);
     }
 
     // Convert uint256 hex strings to numbers

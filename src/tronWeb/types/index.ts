@@ -72,15 +72,17 @@ export interface ErrorResponse {
 }
 
 export interface TronEvent {
-  contract?: string;
-  event_name?: string;
-  data?: string;
-  topics?: string[];
-  block?: number;
-  block_hash?: string;
-  transaction_id?: string;
+  block_number: number;
+  contract_address: string;
+  event_name: string;
+  transaction_id: string;
+  log_index: number;
+  result: {
+    _topics: string[];
+    _data: string;
+  };
   transaction_index?: number;
-  log_index?: number;
+  block_hash?: string;
 }
 
 export type TronWebLike = {
@@ -91,10 +93,12 @@ export type TronWebLike = {
     getTransactionInfo(txid: string): Promise<TronTransactionInfo>;
     getTransaction(txid: string): Promise<TronTransaction>;
     getAccount(address: string): Promise<{ transactions?: unknown[] }>;
-    getContract(address: string): Promise<{ bytecode?: string }>;
+    getContract(address: string): Promise<{ bytecode?: string; code_hash?: string; abi?: { entrys: any[] } }>;
     getChainParameters(): Promise<Array<{ key: string; value: number }>>;
     sendRawTransaction(raw: string | TronTransaction): Promise<{ txid?: string; result?: boolean; transaction?: { txID: string } }>;
     sign(data: unknown): Promise<string>;
+    signMessageV2(message: Buffer | Uint8Array): Promise<string>;
+    verifyMessage(message: Buffer | string, signature: string): Promise<string>;
   };
   transactionBuilder: {
     triggerConstantContract(
@@ -126,12 +130,19 @@ export type TronWebLike = {
     ): Promise<TronTransaction>;
   };
   address: { fromHex(hex: string): string; toHex(base58: string): string };
-  event?: {
+  utils: {
+    code: {
+      generateHashedMessage(message: Buffer | string): string;
+    };
+  };
+  event: {
     getEventsByContractAddress(
       address: string,
       options: Record<string, unknown>
     ): Promise<TronEvent[]>;
   };
+  contract(abi: any[], address: string): Promise<any>;
+  defaultPrivateKey: string;
   defaultAddress?: {
     base58?: string;
     b58?: string;

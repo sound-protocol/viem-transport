@@ -1,19 +1,24 @@
-import type { MethodHandler } from "./types";
-import type { TronTransaction } from "../types";
-import { strip0x, to0x, toHex } from "../utils/hex";
-import { normalizeReceipt, extractFromAddress, extractToAddress, extractValue, extractInputData } from "../utils/transactions";
-import { assertAddress, resolveFromAddress, tronBase58FromEvm } from "../utils/address";
-import { toSun, resolveFeeLimit, toOptionalNumber } from "../utils/numeric";
-import { isPlainObject } from "../utils/validation";
-import { extractTronErrorMessage } from "../utils/errors";
-import { parseCallData, convertParamsToTron } from "../abi";
-import { signTransaction } from "../utils/signing";
-import { DEFAULT_FEE_LIMIT } from "../constants";
+import type {MethodHandler} from "./types";
+import type {Address, TronTransaction} from "../types";
+import {strip0x, to0x, toHex} from "../utils/hex";
 import {
-  signWithEthereumPrefix,
-  ensureEthereumSignatureFormat,
+  extractFromAddress,
+  extractInputData,
+  extractToAddress,
+  extractValue,
+  normalizeReceipt
+} from "../utils/transactions";
+import {assertAddress, resolveFromAddress, tronBase58FromEvm} from "../utils/address";
+import {resolveFeeLimit, toOptionalNumber, toSun} from "../utils/numeric";
+import {isPlainObject} from "../utils/validation";
+import {extractTronErrorMessage} from "../utils/errors";
+import {convertParamsToTron, parseCallData} from "../abi";
+import {signTransaction} from "../utils/signing";
+import {DEFAULT_FEE_LIMIT} from "../constants";
+import {
   DEFAULT_COMPATIBILITY_CONFIG,
-  SignatureCompatibilityConfig
+  ensureEthereumSignatureFormat,
+  signWithEthereumPrefix
 } from "../utils/ethereum-compatible-signing";
 
 export const eth_sendRawTransaction: MethodHandler = async (params, { tw, config }) => {
@@ -26,25 +31,17 @@ export const eth_sendRawTransaction: MethodHandler = async (params, { tw, config
     // Decode the Ethereum RLP-encoded transaction
     const decodedTx = parseTransaction(rawTxHex as `0x${string}`);
 
-    console.log('🔵 eth_sendRawTransaction: Decoded Ethereum transaction');
-    console.log('   To:', decodedTx.to);
-    console.log('   Value:', decodedTx.value);
-    console.log('   Data:', decodedTx.data ? `${decodedTx.data.substring(0, 20)}...` : 'none');
-    console.log('   Gas:', decodedTx.gas);
-
-    // Ensure we have a from address (signer)
-    const sender = resolveFromAddress(tw, config, decodedTx.from, {
-      method: "eth_sendRawTransaction",
-      property: "transaction.from",
-      allowZeroFallback: false,
-    });
+    // Recover sender address from signed transaction
+    const { recoverTransactionAddress } = await import('viem');
+    // rawTxHex is an RLP-encoded signed transaction which can be of any transaction type
+    const senderAddress = await recoverTransactionAddress({ serializedTransaction: rawTxHex as any });
+    const sender = { evm: senderAddress, base58: tronBase58FromEvm(tw, senderAddress) };
 
     // Extract transaction parameters
     // Note: Tron's feeLimit needs to be much higher than Ethereum gas estimates
     // Use at least 10x the gas estimate, or DEFAULT_FEE_LIMIT, whichever is higher
     const estimatedGas = decodedTx.gas ? Number(decodedTx.gas) : 0;
-    const minFeeLimit = Math.max(estimatedGas * 10, DEFAULT_FEE_LIMIT);
-    const feeLimit = minFeeLimit;
+    const feeLimit = Math.max(estimatedGas * 10, DEFAULT_FEE_LIMIT);
     const valueSun = decodedTx.value ? Number(decodedTx.value) : 0;
     const dataHex = decodedTx.data ?? "0x";
     const hasData = strip0x(dataHex).length > 0;
@@ -70,8 +67,6 @@ export const eth_sendRawTransaction: MethodHandler = async (params, { tw, config
         // Recognized function - use dynamic processing
         const { functionInfo, params } = parsedCall;
         const tronParams = convertParamsToTron(params, tw);
-
-        console.log(`   Calling ${functionInfo.signature}`);
 
         const trigger = await tw.transactionBuilder.triggerSmartContract(
           contractBase58,
@@ -137,7 +132,6 @@ export const eth_sendRawTransaction: MethodHandler = async (params, { tw, config
     }
 
     // Broadcast the signed Tron transaction
-    console.log('   Broadcasting transaction...');
     const broadcast = await tw.trx.sendRawTransaction(preparedTx);
 
     if (!broadcast?.result) {
@@ -159,11 +153,9 @@ export const eth_sendRawTransaction: MethodHandler = async (params, { tw, config
       throw new Error("eth_sendRawTransaction broadcast succeeded but no transaction id was returned.");
     }
 
-    console.log('   ✅ Transaction broadcast successful:', to0x(txid));
     return to0x(txid);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('   ❌ eth_sendRawTransaction failed:', msg);
     throw new Error(`eth_sendRawTransaction failed: ${msg}`);
   }
 };
@@ -277,18 +269,49 @@ export const eth_sendTransaction: MethodHandler = async (params, { tw, config })
         );
 
         if (hasComplexTypes) {
-          // Complex types: use rawParameter mode for safety and reliability
-          // TronWeb handles ABI decoding internally for dynamic types
+          // Complex types: decode viem's encoding and pass params to TronWeb
+          // This allows TronWeb to properly encode bytes/arrays
           if (process.env.DEBUG_TRANSPORT) {
-            console.debug(`Function ${parsedCall.functionInfo.signature} has complex types (bytes/arrays), using rawParameter mode`);
+            console.debug(`Function ${parsedCall.functionInfo.signature} has complex types (bytes/arrays), using parameter decoding`);
           }
 
-          options.rawParameter = rawParameter;
+          // Import viem's decodeFunctionData dynamically
+          const { decodeFunctionData, parseAbi } = await import("viem");
+
+          // Reconstruct ABI for decoding
+          // Cast to any because viem's parseAbi has strict literal types
+          const abi = parseAbi([`function ${parsedCall.functionInfo.signature}`] as any);
+
+          // Decode the parameters
+          const decoded = decodeFunctionData({
+            abi,
+            data: `0x${rawParameter}` as `0x${string}`,
+          });
+
+          // Convert parameters to TronWeb format
+          const tronParams = parsedCall.functionInfo.params.map((paramType, i) => {
+            const value = (decoded.args as any[])[i];
+
+            if (paramType === 'address') {
+              // Convert address to Tron base58
+              return { type: 'address', value: tronBase58FromEvm(tw, value as `0x${string}`) };
+            } else if (paramType.startsWith('bytes')) {
+              // Keep hex format with 0x prefix for bytes
+              return { type: paramType, value: value as string };
+            } else if (paramType.includes('[]')) {
+              // Arrays remain as-is
+              return { type: paramType, value };
+            } else {
+              // Numbers, strings, etc
+              return { type: paramType, value: typeof value === 'bigint' ? value.toString() : value };
+            }
+          });
+
           const trigger = await tw.transactionBuilder.triggerSmartContract(
             contractBase58,
-            "",
+            parsedCall.functionInfo.signature,
             options,
-            [],
+            tronParams,
             sender.base58,
           );
 
@@ -474,14 +497,8 @@ export const personal_sign: MethodHandler = async (params, { tw }) => {
     const signature = await tw.trx.signMessageV2(prefixedMessage);
 
     // Format signature for Ethereum compatibility
-    if (typeof signature === 'string') {
-      return to0x(signature);
-    } else if (signature && typeof signature === 'object') {
-      const sig = signature.signature || signature;
-      return to0x(sig);
-    }
-
-    throw new Error('Invalid signature format from TronWeb');
+    // signMessageV2 returns a hex string signature
+    return to0x(signature);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     throw new Error(`personal_sign failed: ${msg}`);
@@ -552,7 +569,11 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, 
         }];
 
         // Convert verifying contract (Safe address) to base58
-        const safeBase58 = tronBase58FromEvm(tw, typedData.domain.verifyingContract as string);
+        // EIP-712 verifyingContract is always an Ethereum 0x address
+        if (!typedData.domain.verifyingContract) {
+          throw new Error('EIP-712 typed data missing verifyingContract in domain');
+        }
+        const safeBase58 = tronBase58FromEvm(tw, typedData.domain.verifyingContract as Address);
 
         // Create Safe contract instance
         const safeContract = await tw.contract(safeAbi, safeBase58);
@@ -602,7 +623,7 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, 
         return to0x(sigString);
       } catch (safeError) {
         // If Safe-specific signing fails, fall through to standard EIP-712 signing
-        console.warn('Safe transaction hash query failed, falling back to standard EIP-712:', safeError);
+        // Silently fall back - this is expected for non-Safe contracts
       }
     }
 
@@ -622,7 +643,10 @@ export const eth_signTypedData_v4: MethodHandler = async (params, { tw, config, 
             "type": "function"
           }];
 
-          const contractBase58 = tronBase58FromEvm(tw, typedData.domain.verifyingContract as string);
+          if (!typedData.domain.verifyingContract) {
+            throw new Error('EIP-712 typed data missing verifyingContract in domain');
+          }
+          const contractBase58 = tronBase58FromEvm(tw, typedData.domain.verifyingContract as Address);
 
           const contract = await tw.contract(minimalAbi, contractBase58);
           const onChainChainId = await contract.getChainId().call();

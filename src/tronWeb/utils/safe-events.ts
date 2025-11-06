@@ -1,7 +1,7 @@
 import type { TronWebLike } from "../types";
 import { strip0x, to0x } from "./hex";
 import { toHex } from "./hex";
-import { keccak256 } from "./eip712";
+import { keccak256 } from "viem";
 
 /**
  * Safe (Gnosis Safe) contract events registry
@@ -41,7 +41,7 @@ export const SAFE_EVENTS = {
 
   SignMsg: {
     signature: 'SignMsg(bytes32)',
-    topic: '0xe7f4675038f4f6034dfcbbb24c4dc08e4ebf10eb9d257d3d02c0f2d3f1a0e9d8',
+    topic: '0xe7f4675038f4f6034dfcbbb24c4dc08e4ebf10eb9d257d3d02c0f38d122ac6e4',
     decode: (log: any) => ({
       msgHash: log.topics[1],
     }),

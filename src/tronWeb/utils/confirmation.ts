@@ -150,7 +150,7 @@ async function getTransactionReceiptWithConfirmations(
     topics: log.topics?.map((t: string) => to0x(t)) ?? [],
     data: to0x(log.data ?? ""),
     blockNumber: toHex(txBlockNumber),
-    transactionHash: to0x(txInfo.id),
+    transactionHash: to0x(txInfo.id ?? txid),
     transactionIndex: "0x0", // Tron doesn't have tx index within block
     blockHash: to0x(txInfo.blockHash ?? ""),
     logIndex: toHex(log.index ?? 0),
@@ -158,7 +158,7 @@ async function getTransactionReceiptWithConfirmations(
   }));
 
   const receipt: TransactionReceipt = {
-    transactionHash: to0x(txInfo.id),
+    transactionHash: to0x(txInfo.id ?? txid),
     transactionIndex: "0x0", // Tron doesn't have tx index
     blockHash: to0x(txInfo.blockHash ?? ""),
     blockNumber: toHex(txBlockNumber),

@@ -2,7 +2,7 @@ import { keccak256 } from "viem";
 import { strip0x } from "./hex";
 
 // EIP-712 type definitions
-interface TypedDataDomain {
+export interface TypedDataDomain {
   name?: string;
   version?: string;
   chainId?: number | bigint;
@@ -10,12 +10,12 @@ interface TypedDataDomain {
   salt?: string;
 }
 
-interface TypedDataField {
+export interface TypedDataField {
   name: string;
   type: string;
 }
 
-interface TypedData {
+export interface TypedData {
   domain: TypedDataDomain;
   types: Record<string, TypedDataField[]>;
   primaryType: string;

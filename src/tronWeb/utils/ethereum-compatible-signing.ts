@@ -6,7 +6,7 @@
  * Ethereum-based contracts to work on TRON.
  */
 
-import { TronWeb } from "tronweb";
+import type { TronWebLike } from "../types";
 
 /**
  * Signs a message with Ethereum prefix to ensure compatibility
@@ -17,7 +17,7 @@ import { TronWeb } from "tronweb";
  * @returns Ethereum-compatible signature
  */
 export async function signWithEthereumPrefix(
-  tw: TronWeb,
+  tw: TronWebLike,
   message: string | Uint8Array
 ): Promise<string> {
   // Convert message to bytes
@@ -144,7 +144,7 @@ export const DEFAULT_COMPATIBILITY_CONFIG: SignatureCompatibilityConfig = {
  * Enhanced signing method selector based on configuration
  */
 export async function signMessageWithConfig(
-  tw: TronWeb,
+  tw: TronWebLike,
   message: string | Uint8Array,
   config: SignatureCompatibilityConfig = DEFAULT_COMPATIBILITY_CONFIG
 ): Promise<string> {
