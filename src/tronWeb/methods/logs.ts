@@ -1,6 +1,6 @@
 import type { MethodHandler } from "./types";
 import { assertAddress, tronBase58FromEvm, tronAddressTo0x } from "../utils/address";
-import { toHex } from "../utils/hex";
+import { toHex } from "viem";
 import { convertEventTopics, convertEventData, matchesTopicFilter } from "../utils/events";
 import { resolveBlockNumber } from "./blocks";
 import { ZERO_ADDRESS } from "../constants";

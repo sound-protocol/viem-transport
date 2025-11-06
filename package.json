@@ -2,16 +2,22 @@
   "name": "@wirexapp/viem-transport",
   "version": "1.0.0",
   "description": "Viem transport for Tron blockchain - enables Ethereum-compatible RPC calls on Tron via TronWeb",
-  "source": "src/tronWeb/index.ts",
   "main": "dist/index.js",
-  "types": "dist/tronWeb/tronWeb/index.d.ts",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
   "publishConfig": {
     "access": "restricted"
   },
   "files": [
     "dist",
-    "README.md",
-    "LICENSE"
+    "README.md"
   ],
   "keywords": [
     "tron",
@@ -25,7 +31,7 @@
     "gnosis-safe"
   ],
   "scripts": {
-    "build": "rm -rf dist && microbundle --tsconfig tsconfig.json --no-sourcemap",
+    "build": "tsup src/tronWeb/index.ts --format cjs,esm --dts --clean",
     "prepublishOnly": "npm run build",
     "test": "vitest",
     "test:run": "vitest run",
@@ -56,18 +62,18 @@
   },
   "homepage": "https://github.com/BOBER3r/viem-transport#readme",
   "dependencies": {
-    "@safe-global/protocol-kit": "^6.1.1",
-    "@safe-global/safe-ethers-lib": "^1.9.4",
-    "bottleneck": "^2.19.5",
-    "dotenv": "^17.2.2",
-    "ethers": "^5.8.0",
-    "p-retry": "^7.0.0",
     "tronweb": "^6.0.4",
     "viem": "^2.37.8"
   },
   "devDependencies": {
+    "@safe-global/protocol-kit": "^6.1.1",
+    "@safe-global/safe-ethers-lib": "^1.9.4",
     "@vitest/ui": "^3.2.4",
-    "microbundle": "^0.15.1",
+    "bottleneck": "^2.19.5",
+    "dotenv": "^17.2.2",
+    "ethers": "^5.8.0",
+    "p-retry": "^7.0.0",
+    "tsup": "8.5.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

@@ -1,6 +1,6 @@
 import type { MethodHandler } from "./types";
 import type { Address } from "../types";
-import { toHex } from "../utils/hex";
+import { toHex } from "viem";
 import { assertAddress, tronBase58FromEvm, toCanonicalAddress, getTronDefaultAddressCandidates } from "../utils/address";
 
 export const eth_getBalance: MethodHandler = async (params, { tw }) => {

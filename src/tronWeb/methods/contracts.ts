@@ -1,6 +1,7 @@
 import type { MethodHandler } from "./types";
 import { assertAddress, resolveFromAddress, tronBase58FromEvm } from "../utils/address";
-import { strip0x, to0x, toHex, normalizeHex } from "../utils/hex";
+import { toHex } from "viem";
+import { strip0x, to0x, normalizeHex } from "../utils/hex";
 import { toSun, resolveFeeLimit, toOptionalNumber } from "../utils/numeric";
 import { isPlainObject } from "../utils/validation";
 import { extractTronErrorMessage } from "../utils/errors";

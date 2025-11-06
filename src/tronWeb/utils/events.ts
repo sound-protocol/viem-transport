@@ -1,6 +1,6 @@
 import { keccak256, toHex as viemToHex } from "viem";
 import type { TronWebLike } from "../types";
-import { strip0x, toHex } from "./hex";
+import { strip0x } from "./hex";
 import { tronAddressTo0x } from "./address";
 import { ZERO_ADDRESS } from "../constants";
 import { SAFE_EVENTS } from "./safe-events";

@@ -1,8 +1,3 @@
-export function toHex(v: bigint | number | string | undefined): `0x${string}` {
-  const b = typeof v === "bigint" ? v : v == null ? BigInt(0) : BigInt(v);
-  return `0x${b.toString(16)}`;
-}
-
 export function to0x(hex: string): `0x${string}` {
   return `0x${strip0x(hex).toLowerCase()}`;
 }

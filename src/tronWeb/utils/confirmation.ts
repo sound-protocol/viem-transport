@@ -1,5 +1,6 @@
 import type { TronWebLike } from "../types";
-import { toHex, strip0x, to0x } from "./hex";
+import { toHex } from "viem";
+import { strip0x, to0x } from "./hex";
 
 /**
  * Options for waiting for transaction confirmation

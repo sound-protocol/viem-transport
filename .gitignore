@@ -14,3 +14,4 @@
 # Prevent compiled JS files in src/ (TypeScript source only)
 src/**/*.js
 src/**/*.js.map
+/.tmp

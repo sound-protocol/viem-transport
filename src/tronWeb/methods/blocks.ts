@@ -1,6 +1,7 @@
 import type { MethodHandler } from "./types";
 import type { TronBlock, TronTransaction, TronWebLike } from "../types";
-import { toHex, to0x } from "../utils/hex";
+import { toHex } from "viem";
+import { to0x } from "../utils/hex";
 import { tronAddressTo0x } from "../utils/address";
 import { ZERO_ADDRESS } from "../constants";
 

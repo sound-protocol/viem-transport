@@ -1,5 +1,6 @@
 import type { Address, TronTransaction, TronTransactionInfo, TronWebLike } from "../types";
-import { to0x, toHex } from "./hex";
+import { toHex } from "viem";
+import { to0x } from "./hex";
 import { tronAddressTo0x } from "./address";
 import { ZERO_ADDRESS } from "../constants";
 

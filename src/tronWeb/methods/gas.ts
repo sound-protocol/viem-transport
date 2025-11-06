@@ -1,5 +1,5 @@
 import type { MethodHandler } from "./types";
-import { toHex } from "../utils/hex";
+import { toHex } from "viem";
 
 export const eth_gasPrice: MethodHandler = async (_params, { tw }) => {
   // Return current energy price mapped to wei

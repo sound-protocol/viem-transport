@@ -1,6 +1,7 @@
 import type {MethodHandler} from "./types";
 import type {Address, TronTransaction} from "../types";
-import {strip0x, to0x, toHex} from "../utils/hex";
+import { toHex } from "viem";
+import {strip0x, to0x} from "../utils/hex";
 import {
   extractFromAddress,
   extractInputData,

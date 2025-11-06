@@ -1,8 +1,7 @@
-import { createTransport, type EIP1193RequestFn } from "viem";
+import { createTransport, type EIP1193RequestFn, toHex } from "viem";
 import type { TronWebLike, TronWebTransport } from "./types";
 import type { TronWebTransportConfig } from "./types/config";
-import { toHex } from "./utils/hex";
-import { getMethodHandler } from "./methods/registry";
+import { METHOD_REGISTRY } from "./methods/registry";
 import type { MethodContext } from "./methods/types";
 
 /**
@@ -95,7 +94,7 @@ function buildEip1193Request(
     };
 
     // Check if we have a handler for this method
-    const handler = getMethodHandler(method);
+    const handler = METHOD_REGISTRY[method];
     if (handler) {
       return await handler(p, context);
     }
@@ -113,7 +112,7 @@ export type { TronWebTransportConfig, TronWebSigner, TronWebSignerContext } from
 
 // Export utility functions that might be useful for consumers
 export * from "./utils/address";
-export * from "./utils/hex";
+export { to0x, strip0x, normalizeHex } from "./utils/hex"; // toHex is from viem
 export { ZERO_ADDRESS, DEFAULT_FEE_LIMIT, TRON_HEX_PREFIX, BASE58_REGEX } from "./constants";
 
 // Export transaction confirmation utilities
