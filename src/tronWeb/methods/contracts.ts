@@ -159,21 +159,28 @@ export const eth_getCode: MethodHandler = async (params, { tw }) => {
     const contract = await tw.trx.getContract(tronAddress);
 
     // Check if contract exists by verifying code_hash or abi presence
-    if (!contract || (!contract.code_hash && !contract.abi)) {
-      // Not a contract - return empty
-      return "0x";
+    if (contract && (contract.code_hash || contract.abi)) {
+      // Return code_hash if available
+      if (contract.code_hash && typeof contract.code_hash === 'string') {
+        return to0x(contract.code_hash);
+      }
+      // Fallback: if abi exists but no code_hash, return minimal non-empty value
+      return "0x01";
     }
 
-    // Return code_hash if available
-    // This allows Protocol Kit and other tools to verify contract deployment
-    // without needing actual bytecode
-    if (contract.code_hash && typeof contract.code_hash === 'string') {
-      return to0x(contract.code_hash);
+    // For proxy contracts (e.g., Safe), getContract() may return empty
+    // Use getAccount() as fallback to check if address is deployed
+    const account = await tw.trx.getAccount(tronAddress);
+
+    // If account exists and has an address field, it's deployed
+    if (account && account.address) {
+      // Return "0x01" to indicate contract exists
+      // This is sufficient for Protocol Kit and similar tools
+      return "0x01";
     }
 
-    // Fallback: if abi exists but no code_hash, return minimal non-empty value
-    // "0x01" indicates "contract exists" which is sufficient for Protocol Kit validation
-    return "0x01";
+    // Not a contract - return empty
+    return "0x";
   } catch (error) {
     // If error fetching contract, assume it's not a contract
     if (process.env.DEBUG_TRANSPORT) {

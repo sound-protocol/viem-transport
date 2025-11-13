@@ -159,3 +159,13 @@ export {
   createTronAccountFromTronWeb,
   isTronAccount,
 } from "./utils/tron-account";
+
+// Export Safe Protocol Kit integration utilities
+export {
+  initSafeProtocolKit,
+  createPredictedSafe,
+  deploySafeWithProtocolKit,
+  connectToSafe,
+  TRON_NILE_SAFE_ADDRESSES,
+  type TronSafeConfig,
+} from "./utils/safe-protocol-kit";
