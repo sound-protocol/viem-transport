@@ -1,6 +1,6 @@
 {
   "name": "@wirexapp/viem-transport",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Viem transport for Tron blockchain - enables Ethereum-compatible RPC calls on Tron via TronWeb",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -54,10 +54,10 @@
   "homepage": "https://github.com/BOBER3r/viem-transport#readme",
   "dependencies": {
     "tronweb": "^6.0.4",
-    "viem": "^2.37.8"
+    "viem": "^2.37.8",
+    "@safe-global/protocol-kit": "^6.1.1"
   },
   "devDependencies": {
-    "@safe-global/protocol-kit": "^6.1.1",
     "@safe-global/safe-ethers-lib": "^1.9.4",
     "@vitest/ui": "^3.2.4",
     "bottleneck": "^2.19.5",
