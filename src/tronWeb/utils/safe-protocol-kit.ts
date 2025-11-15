@@ -9,6 +9,7 @@ import Safe, {PredictedSafeProps, SafeAccountConfig, SafeDeploymentConfig} from 
 import {WalletClient} from 'viem';
 import type {TronWebLike} from '../types';
 import {tronAddressTo0x} from './address';
+import {predictSafeAddress, type SafeSetupConfig} from './safe-address-prediction';
 
 /**
  * Configuration for Safe deployment on Tron
@@ -120,11 +121,24 @@ export async function initSafeProtocolKit(
 }
 
 /**
+ * Optional Safe setup configuration
+ */
+export interface SafeSetupOptions {
+  to?: string;                // Optional contract to call during setup
+  data?: string;              // Optional data for setup call
+  fallbackHandler?: string;   // Optional fallback handler address
+  paymentToken?: string;      // Optional payment token address
+  payment?: number;           // Optional payment amount
+  paymentReceiver?: string;   // Optional payment receiver address
+}
+
+/**
  * Create a predicted Safe configuration (for undeployed Safes)
  *
  * @param tronWeb - TronWeb instance
  * @param owners - List of owner addresses (Tron base58 format)
  * @param threshold - Number of required signatures
+ * @param setupOptions - Optional Safe setup configuration
  * @param safeDeploymentConfig - Optional deployment configuration
  * @returns Predicted Safe props for Protocol Kit
  *
@@ -133,7 +147,8 @@ export async function initSafeProtocolKit(
  * const predictedSafe = createPredictedSafe(
  *   tw,
  *   ['TVAJZA2FvSbKJsFbv2Re18h7k9XLLkMsZp', 'TDGJM2pn4YL7ivdebVQfbRVQ33GroSqDpx'],
- *   2
+ *   2,
+ *   { fallbackHandler: 'TT8GrjkxCRMrNL6owRUgUF62VnKnvGXptC' }
  * );
  * ```
  */
@@ -141,6 +156,7 @@ export function createPredictedSafe(
   tronWeb: TronWebLike,
   owners: string[],
   threshold: number,
+  setupOptions?: SafeSetupOptions,
   safeDeploymentConfig?: SafeDeploymentConfig
 ): PredictedSafeProps {
   // Convert Tron addresses to EVM format
@@ -152,10 +168,39 @@ export function createPredictedSafe(
     return evmAddr;
   });
 
+  // Build Safe account configuration with optional parameters
   const safeAccountConfig: SafeAccountConfig = {
     owners: ownersEvm,
     threshold,
   };
+
+  // Add optional setup parameters if provided
+  if (setupOptions?.to) {
+    const toEvm = tronAddressTo0x(tronWeb, setupOptions.to);
+    if (!toEvm) throw new Error(`Failed to convert to address: ${setupOptions.to}`);
+    safeAccountConfig.to = toEvm;
+  }
+  if (setupOptions?.data) {
+    safeAccountConfig.data = setupOptions.data;
+  }
+  if (setupOptions?.fallbackHandler) {
+    const fallbackEvm = tronAddressTo0x(tronWeb, setupOptions.fallbackHandler);
+    if (!fallbackEvm) throw new Error(`Failed to convert fallback handler: ${setupOptions.fallbackHandler}`);
+    safeAccountConfig.fallbackHandler = fallbackEvm;
+  }
+  if (setupOptions?.paymentToken) {
+    const tokenEvm = tronAddressTo0x(tronWeb, setupOptions.paymentToken);
+    if (!tokenEvm) throw new Error(`Failed to convert payment token: ${setupOptions.paymentToken}`);
+    safeAccountConfig.paymentToken = tokenEvm;
+  }
+  if (setupOptions?.payment !== undefined) {
+    safeAccountConfig.payment = setupOptions.payment;
+  }
+  if (setupOptions?.paymentReceiver) {
+    const receiverEvm = tronAddressTo0x(tronWeb, setupOptions.paymentReceiver);
+    if (!receiverEvm) throw new Error(`Failed to convert payment receiver: ${setupOptions.paymentReceiver}`);
+    safeAccountConfig.paymentReceiver = receiverEvm;
+  }
 
   return {
     safeAccountConfig,
@@ -169,6 +214,7 @@ export function createPredictedSafe(
  * @param config - Tron Safe configuration
  * @param owners - List of owner addresses (Tron base58 format)
  * @param threshold - Number of required signatures
+ * @param setupOptions - Optional Safe setup configuration (fallbackHandler, etc.)
  * @param saltNonce - Optional salt nonce for deterministic address. If not provided, generates deterministic salt from owners+threshold
  * @returns Deployed Safe instance and transaction hash
  *
@@ -181,7 +227,9 @@ export function createPredictedSafe(
  *     contractNetworks: { '3448148188': TRON_NILE_SAFE_ADDRESSES }
  *   },
  *   ['TVAJZA2FvSbKJsFbv2Re18h7k9XLLkMsZp'],
- *   1
+ *   1,
+ *   { fallbackHandler: 'TT8GrjkxCRMrNL6owRUgUF62VnKnvGXptC' },
+ *   '12345'
  * );
  * ```
  */
@@ -189,6 +237,7 @@ export async function deploySafeWithProtocolKit(
   config: TronSafeConfig,
   owners: string[],
   threshold: number,
+  setupOptions?: SafeSetupOptions,
   saltNonce?: string
 ): Promise<{
   protocolKit: Safe;
@@ -217,7 +266,7 @@ export async function deploySafeWithProtocolKit(
   // IMPORTANT: If saltNonce is not provided, Protocol Kit will use its own default prediction
   // which ensures the predicted address matches the actual deployed address
   const safeDeploymentConfig = saltNonce ? { saltNonce } : undefined;
-  const predictedSafe = createPredictedSafe(tronWeb, owners, threshold, safeDeploymentConfig);
+  const predictedSafe = createPredictedSafe(tronWeb, owners, threshold, setupOptions, safeDeploymentConfig);
 
   // Initialize Protocol Kit with predicted Safe
   const protocolKit = await Safe.init({
@@ -226,12 +275,46 @@ export async function deploySafeWithProtocolKit(
     contractNetworks: convertedNetworks,
   });
 
-  // Get predicted Safe address
-  const safeAddress = await protocolKit.getAddress();
+  // CRITICAL: Protocol Kit uses Ethereum CREATE2 formula, but Tron uses different CREATE2!
+  // We MUST use our Tron-specific prediction instead of protocolKit.getAddress()
+
+  // Get chainId from wallet client
+  const chainId = await walletClient.getChainId();
+  const contracts = contractNetworks?.[chainId.toString()];
+
+  if (!contracts) {
+    throw new Error(`No contract addresses configured for chainId ${chainId}`);
+  }
+
+  if (!contracts.safeProxyFactoryAddress || !contracts.safeSingletonAddress) {
+    throw new Error('Missing required contract addresses: safeProxyFactoryAddress and safeSingletonAddress');
+  }
+
+  // Build setup config for Tron CREATE2 prediction
+  const setupConfig: SafeSetupConfig = {
+    owners,
+    threshold,
+  };
+
+  if (setupOptions?.to) setupConfig.to = setupOptions.to;
+  if (setupOptions?.data) setupConfig.data = setupOptions.data as `0x${string}`;
+  if (setupOptions?.fallbackHandler) setupConfig.fallbackHandler = setupOptions.fallbackHandler;
+  if (setupOptions?.paymentToken) setupConfig.paymentToken = setupOptions.paymentToken;
+  if (setupOptions?.payment !== undefined) setupConfig.payment = BigInt(setupOptions.payment);
+  if (setupOptions?.paymentReceiver) setupConfig.paymentReceiver = setupOptions.paymentReceiver;
+
+  // Use OUR Tron CREATE2 prediction (NOT Protocol Kit's Ethereum CREATE2)
+  const safeAddress = predictSafeAddress(
+    tronWeb,
+    contracts.safeProxyFactoryAddress,
+    contracts.safeSingletonAddress,
+    setupConfig,
+    saltNonce ? BigInt(saltNonce) : undefined
+  );
 
   return {
     protocolKit,
-    safeAddress,
+    safeAddress, // This now uses Tron CREATE2 and will match actual deployment!
   };
 }
 

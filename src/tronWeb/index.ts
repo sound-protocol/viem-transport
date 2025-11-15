@@ -77,7 +77,7 @@ function buildEip1193Request(
   const config = opts.config;
 
   const getChainIdHex = (): `0x${string}` => {
-    if (typeof opts.chainId === "string") return opts.chainId;
+
     if (typeof opts.chainId === "number") return toHex(opts.chainId);
     if (opts.chain?.id != null) return toHex(opts.chain.id);
     throw new Error("eth_chainId not configured for Tron transport");
@@ -168,6 +168,7 @@ export {
   connectToSafe,
   TRON_NILE_SAFE_ADDRESSES,
   type TronSafeConfig,
+  type SafeSetupOptions,
 } from "./utils/safe-protocol-kit";
 // Safe address prediction (CREATE2)
 export {

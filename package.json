@@ -1,6 +1,6 @@
 {
   "name": "@wirexapp/viem-transport",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Viem transport for Tron blockchain - enables Ethereum-compatible RPC calls on Tron via TronWeb",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

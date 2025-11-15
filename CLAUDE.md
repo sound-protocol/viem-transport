@@ -321,6 +321,299 @@ signatureCompatibility: {
 
 ---
 
+## 🎯 Safe Address Prediction - The CREATE2 Challenge
+
+### The Problem
+
+When implementing Safe wallet pre-funding (predict address → user sends funds → backend deploys), we discovered a **CRITICAL incompatibility**:
+
+- **Protocol Kit** calculates Safe addresses using **Ethereum's CREATE2 formula**
+- **Tron blockchain** uses a **different CREATE2 formula** for actual deployment
+- **Result**: Predicted address ≠ Deployed address → User funds LOST! 💀
+
+### Tron vs Ethereum CREATE2 Formulas
+
+**Ethereum CREATE2**:
+```
+address = keccak256(0xff ++ factory_20bytes ++ salt ++ keccak256(init_code))[12:]
+```
+
+**Tron CREATE2** (discovered through empirical testing):
+```
+address = keccak256(factory_21bytes ++ salt ++ keccak256(init_code))[12:]
+```
+
+**Key Differences**:
+1. No `0xff` prefix in Tron
+2. Tron factory address is 21 bytes (includes `0x41` prefix), not 20 bytes
+3. Components are concatenated directly without `0xff` separator
+
+### The Solution
+
+We implemented **two prediction functions**:
+
+#### 1. `predictSafeAddress()` - Fast, Hardcoded Bytecode
+- Uses hardcoded Safe v1.3.0 proxy bytecode (486 bytes)
+- Calculates using **Tron's CREATE2 formula**
+- Synchronous, no network calls
+- Perfect for production when using official Safe v1.3.0
+
+```typescript
+import { predictSafeAddress } from '@wirexapp/viem-transport';
+
+const predicted = predictSafeAddress(
+  tronWeb,
+  factoryAddress,
+  singletonAddress,
+  { owners, threshold, fallbackHandler },
+  saltNonce
+);
+```
+
+#### 2. `predictSafeAddressWithBytecode()` - Fetches Bytecode
+- Calls `SafeProxyFactory.proxyCreationCode()` to get bytecode
+- Works with ANY Safe version or custom factory
+- Async, requires network call
+- Future-proof for Safe v1.4.0, v2.0.0, etc.
+
+```typescript
+import { predictSafeAddressWithBytecode } from '@wirexapp/viem-transport';
+
+const predicted = await predictSafeAddressWithBytecode(
+  tronWeb,
+  walletClient,
+  factoryAddress,
+  singletonAddress,
+  { owners, threshold, fallbackHandler },
+  saltNonce
+);
+```
+
+### The Critical Fix in `deploySafeWithProtocolKit()`
+
+The function was returning `protocolKit.getAddress()` which uses **Ethereum CREATE2**. We fixed it to use **our Tron CREATE2 prediction**:
+
+```typescript
+// ❌ BEFORE (BROKEN):
+const safeAddress = await protocolKit.getAddress(); // Uses Ethereum CREATE2!
+
+// ✅ AFTER (FIXED):
+const safeAddress = predictSafeAddress(
+  tronWeb,
+  contracts.safeProxyFactoryAddress,
+  contracts.safeSingletonAddress,
+  setupConfig,
+  saltNonce
+); // Uses Tron CREATE2!
+```
+
+**File**: `src/tronWeb/utils/safe-protocol-kit.ts:278-313`
+
+### Verification Results
+
+Tested end-to-end on Tron Nile testnet:
+
+```
+✅ Test: Full Pre-Funding Flow
+
+Predicted: 0xf5c1c8420842e96cd593dbf477607c1336df79fd
+Deployed:  0xf5c1c8420842e96cd593dbf477607c1336df79fd
+Match:     ✅ YES (100% PERFECT)
+
+Deployment TX: https://nile.tronscan.org/#/transaction/9a9591...
+Safe Address: https://nile.tronscan.org/#/address/TYNehHUADM...
+```
+
+**Test File**: `test-full-prefunding-flow.ts`
+
+### Production Requirements
+
+For prediction to match deployment, you **MUST** use identical parameters:
+
+1. ✅ **Same owners** (in exact same order)
+2. ✅ **Same threshold**
+3. ✅ **Same fallbackHandler**
+4. ✅ **Same saltNonce**
+5. ✅ **Same factory and singleton addresses**
+
+If ANY parameter differs, addresses won't match and **user funds will be LOST**!
+
+### Key Learnings
+
+1. **Never Trust Cross-Chain Assumptions**: Protocol Kit was built for Ethereum. Its CREATE2 predictions don't work on Tron.
+
+2. **Always Test End-to-End**: Unit tests passed, but only full workflow testing (predict → fund → deploy) revealed the mismatch.
+
+3. **Empirical Formula Discovery**: We had to decode actual Tron transactions to discover the correct CREATE2 formula.
+
+4. **Store ALL Parameters**: Database must store `saltNonce`, `owners`, `threshold`, `fallbackHandler` to ensure exact match.
+
+5. **Backend Pays Gas**: User can't deploy (no TRX yet), so backend must pay deployment gas.
+
+### Related Files
+
+- `src/tronWeb/utils/safe-address-prediction.ts` - Fast Tron CREATE2 prediction
+- `src/tronWeb/utils/safe-address-prediction-bytecode-agnostic.ts` - Bytecode-fetching version
+- `src/tronWeb/utils/safe-protocol-kit.ts` - Fixed `deploySafeWithProtocolKit()`
+- `test-safe-prediction-VERIFIED.ts` - Verification against real deployment
+- `test-full-prefunding-flow.ts` - End-to-end pre-funding test
+- `SAFE_FRONTEND_INTEGRATION.md` - Complete production integration guide
+
+---
+
+## 🔬 CREATE2 Address Prediction Discovery
+
+### The Challenge
+Production Safe deployments require predicting the Safe address BEFORE deployment so that:
+1. Companies can store the predicted address in their database
+2. Users can deposit funds to the predicted address
+3. The Safe can be deployed when funded
+4. The deployed address MUST match the prediction (or funds are lost)
+
+### Critical Discovery: Tron's CREATE2 Formula is Different
+
+Despite being EVM-compatible, **Tron uses a DIFFERENT CREATE2 formula than Ethereum**:
+
+**Ethereum CREATE2**:
+```
+address = keccak256(0xff ++ factory_20bytes ++ salt ++ keccak256(init_code))[12:]
+```
+
+**Tron CREATE2** (Empirically Verified):
+```
+address = keccak256(factory_21bytes ++ salt ++ keccak256(init_code))[12:]
+```
+
+**Key Differences**:
+- ❌ NO `0xff` prefix
+- ✅ Factory address is 21 bytes (includes `0x41` Tron prefix)
+- ✅ Salt and init_code hash calculation remain the same
+
+### Empirical Verification
+
+Tested both formulas against real Nile testnet deployment (tx: `2a552e5f6eb42fcd72bda99045d874af2c8030fd5d880a1acf099400f88c097a`):
+
+```typescript
+// TEST 1: Standard Ethereum CREATE2 (0xff + 20-byte factory)
+const test1Input = concat(['0xff', FACTORY_EVM_20BYTES, salt, deploymentCodeHash]);
+const test1Predicted = '0x' + keccak256(test1Input).slice(-40);
+// Result: 0xceea6a6ff0f1b853c3c20ea5904d03ebd9cf7cee ❌ No match
+
+// TEST 2: Tron Custom Formula (21-byte factory, no prefix)
+const test2Input = concat([FACTORY_TRON_21BYTES, salt, deploymentCodeHash]);
+const test2Predicted = '0x' + keccak256(test2Input).slice(-40);
+// Result: 0xa9345291e475f54a4fa4bb293ade772369b72294 ✅ MATCH!
+
+// Actual deployed address: 0xa9345291e475f54a4fa4bb293ade772369b72294
+```
+
+**Verification Files**:
+- `DEFINITIVE-TEST.ts` - Complete test with both formulas
+- `test-safe-prediction-VERIFIED.ts` - Production verification test
+- `SAFE_ADDRESS_PREDICTION_GUIDE.md` - Complete production usage guide
+
+### Implementation
+
+**Current (Production-Ready)**:
+```typescript
+// src/tronWeb/utils/safe-address-prediction.ts
+export function predictSafeAddress(
+  tronWeb: TronWebLike,
+  factoryAddress: string,  // Tron base58 format
+  singletonAddress: string,
+  setupConfig: SafeSetupConfig,
+  saltNonce: bigint  // REQUIRED for Tron
+): string {
+  // Convert factory to 21-byte Tron hex (with 41 prefix)
+  const factoryTronHex = tronWeb.address.toHex(factoryAddress);
+
+  // Calculate CREATE2 using Tron formula
+  const create2Input = concat([
+    ('0x' + factoryTronHex) as Hex,  // 21 bytes
+    salt,
+    deploymentCodeHash
+  ]);
+
+  return '0x' + keccak256(create2Input).slice(-40);
+}
+```
+
+**Professional Version** (Fetches bytecode from contract):
+```typescript
+// src/tronWeb/utils/safe-address-prediction-bytecode-agnostic.ts
+export async function predictSafeAddressProfessional(
+  tronWeb: TronWebLike,
+  walletClient: WalletClient,
+  factoryAddress: string,
+  singletonAddress: string,
+  setupConfig: SafeSetupConfig,
+  saltNonce: bigint,
+  options: { useCache?: boolean } = {}
+): Promise<string> {
+  // Fetch proxy bytecode from SafeProxyFactory.proxyCreationCode()
+  const proxyCreationCode = await getProxyCreationCode(
+    walletClient,
+    factoryEvm,
+    useCache
+  );
+
+  // Use same Tron CREATE2 formula
+  // ...
+}
+```
+
+### Lessons Learned
+
+1. **Always Verify Empirically**
+   - Documentation may claim standard EVM compatibility
+   - Real blockchain behavior can differ
+   - Test with actual deployments to verify assumptions
+
+2. **Critical Inputs**
+   - Initializer MUST include function selector (`0xb63e800d` for `setup()`)
+   - Salt nonce MUST be stored and reused exactly
+   - All setup parameters MUST match between prediction and deployment
+   - Factory address format is critical (21 bytes for Tron)
+
+3. **Production Requirements**
+   - Never hardcode proxy bytecode (unprofessional and breaks across versions)
+   - Fetch bytecode from `SafeProxyFactory.proxyCreationCode()`
+   - Cache bytecode per factory to reduce RPC calls
+   - Store salt nonce in database for deployment
+
+4. **Testing Strategy**
+   - Mock tests are insufficient for CREATE2 verification
+   - Must test against real deployed contracts
+   - Compare predicted vs actual addresses from blockchain
+   - Document verification transactions for future reference
+
+### Key Takeaways
+
+1. **Be Honest About Unknowns**: When empirical evidence contradicts documentation, trust the empirical evidence and investigate deeper
+2. **Don't Hardcode**: Fetching proxy bytecode from contract is the professional approach
+3. **Salt Management is Critical**: Losing the salt nonce means unable to deploy to predicted address
+4. **Test on Real Network**: CREATE2 prediction cannot be verified with mocks alone
+5. **Document Everything**: Future developers need to understand WHY the formula differs
+
+### Production Checklist
+
+- ✅ Empirically verified CREATE2 formula
+- ✅ Tested with real Nile testnet deployment
+- ✅ Production guide created (SAFE_ADDRESS_PREDICTION_GUIDE.md)
+- ✅ Salt nonce extraction utility implemented
+- ✅ Professional version with bytecode fetching
+- ✅ Proper error messages for troubleshooting
+- ✅ Verification test suite
+
+**Files**:
+- `src/tronWeb/utils/safe-address-prediction.ts` - Production implementation
+- `src/tronWeb/utils/safe-address-prediction-bytecode-agnostic.ts` - Professional version
+- `SAFE_ADDRESS_PREDICTION_GUIDE.md` - Complete usage guide
+- `DEFINITIVE-TEST.ts` - Empirical verification test
+- `test-safe-prediction-VERIFIED.ts` - Production verification
+
+---
+
 ## 🚀 Phase 1: Production-Ready Safe Integration Features
 
 ### Overview
