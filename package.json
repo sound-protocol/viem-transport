@@ -1,6 +1,6 @@
 {
   "name": "@wirexapp/viem-transport",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Viem transport for Tron blockchain - enables Ethereum-compatible RPC calls on Tron via TronWeb",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -39,6 +39,7 @@
     "example:basic": "tsx examples/basic/tronweb-demo.ts",
     "example:events": "tsx tests/integration/transport-events.test.ts",
     "example:advanced": "tsx tests/e2e/advanced.test.ts",
+    "example:safe-owners": "tsx examples/basic/test-safe-owner-management.ts",
     "utils:conversion": "tsx tests/utils/conversion-test.ts",
     "utils:debug-events": "tsx tests/utils/debug-events.ts"
   },

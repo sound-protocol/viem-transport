@@ -154,18 +154,22 @@ export const eth_getCode: MethodHandler = async (params, { tw }) => {
 
   try {
     // Get contract info from Tron
-    // NOTE: Tron's getContract() API doesn't return actual bytecode like Ethereum
-    // Instead, it returns code_hash and abi fields for deployed contracts
     const contract = await tw.trx.getContract(tronAddress);
 
-    // Check if contract exists by verifying code_hash or abi presence
-    if (contract && (contract.code_hash || contract.abi)) {
-      // Return code_hash if available
-      if (contract.code_hash && typeof contract.code_hash === 'string') {
-        return to0x(contract.code_hash);
+    // Check if contract exists and return actual bytecode
+    if (contract) {
+      // CRITICAL: Return actual bytecode, NOT code_hash
+      // Protocol Kit (and other tools) check if contract is deployed by verifying bytecode length
+      if (contract.bytecode) {
+        return to0x(contract.bytecode);
       }
-      // Fallback: if abi exists but no code_hash, return minimal non-empty value
-      return "0x01";
+
+      // Fallback: if bytecode not available but contract exists (has abi or code_hash)
+      if (contract.abi || contract.code_hash) {
+        // Return minimal non-empty value to indicate contract exists
+        // This handles edge cases where bytecode might not be exposed
+        return "0x01";
+      }
     }
 
     // For proxy contracts (e.g., Safe), getContract() may return empty
@@ -175,7 +179,7 @@ export const eth_getCode: MethodHandler = async (params, { tw }) => {
     // If account exists and has an address field, it's deployed
     if (account && account.address) {
       // Return "0x01" to indicate contract exists
-      // This is sufficient for Protocol Kit and similar tools
+      // This is sufficient for basic contract existence checks
       return "0x01";
     }
 

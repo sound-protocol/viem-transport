@@ -169,3 +169,15 @@ export {
   TRON_NILE_SAFE_ADDRESSES,
   type TronSafeConfig,
 } from "./utils/safe-protocol-kit";
+// Safe address prediction (CREATE2)
+export {
+  predictSafeAddress,
+  extractSaltNonceFromTransaction,
+  type SafeSetupConfig
+} from "./utils/safe-address-prediction";
+
+// Safe address prediction with bytecode fetching (works with any factory)
+export {
+  predictSafeAddressWithBytecode,
+  clearProxyCodeCache,
+} from "./utils/safe-address-prediction-bytecode-agnostic";

@@ -5,14 +5,10 @@
  * enabling Safe multi-signature wallet operations on Tron blockchain.
  */
 
-import Safe, {
-  PredictedSafeProps,
-  SafeAccountConfig,
-  SafeDeploymentConfig
-} from '@safe-global/protocol-kit';
-import { WalletClient } from 'viem';
-import type { TronWebLike } from '../types';
-import { tronAddressTo0x } from './address';
+import Safe, {PredictedSafeProps, SafeAccountConfig, SafeDeploymentConfig} from '@safe-global/protocol-kit';
+import {WalletClient} from 'viem';
+import type {TronWebLike} from '../types';
+import {tronAddressTo0x} from './address';
 
 /**
  * Configuration for Safe deployment on Tron
@@ -120,9 +116,7 @@ export async function initSafeProtocolKit(
     initConfig.safeAddress = evmSafeAddress;
   }
 
-  const protocolKit = await Safe.init(initConfig);
-
-  return protocolKit;
+  return await Safe.init(initConfig);
 }
 
 /**
@@ -175,7 +169,7 @@ export function createPredictedSafe(
  * @param config - Tron Safe configuration
  * @param owners - List of owner addresses (Tron base58 format)
  * @param threshold - Number of required signatures
- * @param saltNonce - Optional salt nonce for deterministic address
+ * @param saltNonce - Optional salt nonce for deterministic address. If not provided, generates deterministic salt from owners+threshold
  * @returns Deployed Safe instance and transaction hash
  *
  * @example
@@ -220,9 +214,10 @@ export async function deploySafeWithProtocolKit(
   }
 
   // Create predicted Safe configuration
-  const predictedSafe = createPredictedSafe(tronWeb, owners, threshold, {
-    saltNonce: saltNonce || Date.now().toString(),
-  });
+  // IMPORTANT: If saltNonce is not provided, Protocol Kit will use its own default prediction
+  // which ensures the predicted address matches the actual deployed address
+  const safeDeploymentConfig = saltNonce ? { saltNonce } : undefined;
+  const predictedSafe = createPredictedSafe(tronWeb, owners, threshold, safeDeploymentConfig);
 
   // Initialize Protocol Kit with predicted Safe
   const protocolKit = await Safe.init({
