@@ -15,7 +15,6 @@ import {
   deploySafeWithProtocolKit,
   TRON_NILE_SAFE_ADDRESSES,
   waitForTransactionReceipt,
-  tronAddressTo0x,
 } from '../../src/tronWeb';
 import 'dotenv/config';
 
@@ -41,12 +40,14 @@ async function fullSafeWorkflow() {
 
   const walletClient = createWalletClient({ transport });
   const ownerAddress = tw.defaultAddress.base58;
-  const ownerEvm = tronAddressTo0x(tw, ownerAddress);
 
   console.log(`Owner: ${ownerAddress}\n`);
 
   // Step 1: Deploy Safe
   console.log('📋 Step 1: Deploying Safe with Protocol Kit\n');
+
+  // CRITICAL: Store this salt nonce in your database for production!
+  const saltNonce = Date.now().toString();
 
   const { protocolKit, safeAddress } = await deploySafeWithProtocolKit(
     {
@@ -58,6 +59,8 @@ async function fullSafeWorkflow() {
     },
     [ownerAddress],
     1,
+    undefined, // setupOptions
+    saltNonce, // REQUIRED for Tron CREATE2 prediction
   );
 
   console.log(`   Safe address: ${safeAddress}\n`);

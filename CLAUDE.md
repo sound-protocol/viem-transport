@@ -86,12 +86,13 @@ export const FUNCTION_REGISTRY = {
 ### Working with Addresses
 
 ```typescript
-import { assertAddress, tronBase58FromEvm, toCanonicalAddress } from "./utils/address";
+import { tronBase58FromEvm, tronAddressTo0x } from "@wirexapp/viem-transport";
 
-// Validate and convert
-const addr = assertAddress(tw, input, { method: "eth_call", parameter: 0 });
-const tronAddr = tronBase58FromEvm(tw, addr);
-const evmAddr = toCanonicalAddress(tw, tronAddr);
+// Convert Tron address to Ethereum 0x format
+const evmAddr = tronAddressTo0x(tw, 'TAbcd...');  // "0x1234..."
+
+// Convert Ethereum 0x to Tron base58
+const tronAddr = tronBase58FromEvm(tw, '0x1234...');  // "TAbcd..."
 ```
 
 ## 🧪 Testing

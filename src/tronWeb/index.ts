@@ -110,9 +110,20 @@ function buildEip1193Request(
 export type { TronWebLike, TronWebTransport } from "./types";
 export type { TronWebTransportConfig, TronWebSigner, TronWebSignerContext } from "./types/config";
 
-// Export utility functions that might be useful for consumers
-export * from "./utils/address";
-export { to0x, strip0x, normalizeHex } from "./utils/hex"; // toHex is from viem
+// Address conversion utilities (selective export - only public API)
+export {
+  tronBase58FromEvm,
+  tronAddressTo0x,
+  tronHex41To0x,
+  tronBase58ToHex41,
+  // NOT exporting internal helpers: assertAddress, toCanonicalAddress (internal implementation),
+  // resolveFromAddress, getTronDefaultAddressCandidates
+} from "./utils/address";
+
+// Hex utilities
+export { to0x, strip0x, normalizeHex } from "./utils/hex";
+
+// Constants
 export { ZERO_ADDRESS, DEFAULT_FEE_LIMIT, TRON_HEX_PREFIX, BASE58_REGEX } from "./constants";
 
 // Export transaction confirmation utilities
@@ -182,3 +193,53 @@ export {
   predictSafeAddressWithBytecode,
   clearProxyCodeCache,
 } from "./utils/safe-address-prediction-bytecode-agnostic";
+
+// Export EIP-712 typed data utilities
+export {
+  createEIP712Digest,
+  parseTypedData,
+  formatSafeTransaction,
+  type TypedData,
+  type TypedDataDomain,
+  type TypedDataField,
+} from "./utils/eip712";
+
+// Export Ethereum-compatible signing utilities
+export {
+  signMessageWithConfig,
+  ensureEthereumSignatureFormat,
+  createEthereumMessageHash,
+  isEthereumCompatibleSignature,
+  extractSignatureComponents,
+  DEFAULT_COMPATIBILITY_CONFIG,
+  type SignatureCompatibilityConfig,
+} from "./utils/ethereum-compatible-signing";
+
+// Export numeric conversion utilities
+export {
+  toSun,
+  toBigIntLike,
+  toOptionalNumber,
+} from "./utils/numeric";
+
+// Export validation utilities (selective - only Tron-specific)
+export {
+  isTronBase58,
+  // NOT exporting: isPlainObject (too generic, not Tron-specific)
+} from "./utils/validation";
+
+// Export error handling utilities (selective - high-level only)
+export {
+  extractTronErrorMessage,
+  decodeTronMessage,
+  // NOT exporting: decodeBase64String (internal implementation detail, use decodeTronMessage instead)
+} from "./utils/errors";
+
+// Export transaction helper utilities
+export {
+  extractInputData,
+  extractFromAddress,
+  extractToAddress,
+  extractValue,
+  normalizeReceipt,
+} from "./utils/transactions";

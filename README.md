@@ -318,6 +318,20 @@ if (signatureError) {
 }
 ```
 
+## Documentation
+
+- **[📚 Complete API Reference](./API_REFERENCE.md)** - Comprehensive documentation for all exported utilities
+- **[🏗️ Architecture Guide](./CLAUDE.md)** - Internal architecture and development guide
+
+### Quick Links
+
+- [Address Conversion](./API_REFERENCE.md#address-conversion) - Convert between Tron and Ethereum formats
+- [Transaction Confirmation](./API_REFERENCE.md#transaction-confirmation) - Wait for confirmations with progress tracking
+- [EIP-712 Typed Data](./API_REFERENCE.md#eip-712-typed-data) - Sign structured data for Safe transactions
+- [Signature Validation](./API_REFERENCE.md#signature-validation) - Debug signature verification issues
+- [Safe Events](./API_REFERENCE.md#safe-events) - Monitor all Safe contract events
+- [Safe Protocol Kit](./API_REFERENCE.md#safe-protocol-kit-integration) - Full Safe integration utilities
+
 ## Testing
 
 ```bash
