@@ -291,6 +291,8 @@ export async function deploySafeWithProtocolKit(
   }
 
   // Build setup config for Tron CREATE2 prediction
+  // CRITICAL: Protocol Kit automatically uses fallbackHandlerAddress from contractNetworks
+  // if not explicitly overridden. We must match this behavior for prediction to work!
   const setupConfig: SafeSetupConfig = {
     owners,
     threshold,
@@ -298,7 +300,15 @@ export async function deploySafeWithProtocolKit(
 
   if (setupOptions?.to) setupConfig.to = setupOptions.to;
   if (setupOptions?.data) setupConfig.data = setupOptions.data as `0x${string}`;
-  if (setupOptions?.fallbackHandler) setupConfig.fallbackHandler = setupOptions.fallbackHandler;
+
+  // Use explicit fallbackHandler if provided, otherwise use the one from contractNetworks
+  // (Protocol Kit does this automatically when creating deployment transaction)
+  if (setupOptions?.fallbackHandler) {
+    setupConfig.fallbackHandler = setupOptions.fallbackHandler;
+  } else if (contracts.fallbackHandlerAddress) {
+    setupConfig.fallbackHandler = contracts.fallbackHandlerAddress;
+  }
+
   if (setupOptions?.paymentToken) setupConfig.paymentToken = setupOptions.paymentToken;
   if (setupOptions?.payment !== undefined) setupConfig.payment = BigInt(setupOptions.payment);
   if (setupOptions?.paymentReceiver) setupConfig.paymentReceiver = setupOptions.paymentReceiver;

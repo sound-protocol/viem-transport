@@ -13,9 +13,12 @@ import { createWalletClient } from 'viem';
 import {
   tronWeb,
   deploySafeWithProtocolKit,
+  connectToSafe,
   TRON_NILE_SAFE_ADDRESSES,
   waitForTransactionReceipt,
-} from '../../src/tronWeb';
+  tronAddressTo0x,
+  tronBase58FromEvm,
+} from '../../dist/index.js';
 import 'dotenv/config';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -113,12 +116,32 @@ async function fullSafeWorkflow() {
     console.log('📋 Step 2: Safe already deployed\n');
   }
 
+  // IMPORTANT: After deployment, reconnect to the Safe with its actual address
+  // Protocol Kit in "predictedSafe" mode doesn't auto-switch after deployment
+  console.log('📋 Step 2.5: Reconnecting to deployed Safe\n');
+
+  const safeAddressTron = tronBase58FromEvm(tw, safeAddress)!;
+  const connectedProtocolKit = await connectToSafe(
+    {
+      tronWeb: tw,
+      walletClient,
+      contractNetworks: {
+        '3448148188': TRON_NILE_SAFE_ADDRESSES,
+      },
+    },
+    safeAddressTron
+  );
+
+  // Use the connected instance for remaining operations
+  const protocolKitConnected = connectedProtocolKit;
+  console.log(`   ✅ Connected to Safe at ${safeAddressTron}\n`);
+
   // Step 3: Get Safe info
   console.log('📋 Step 3: Fetching Safe Information\n');
 
-  const owners = await protocolKit.getOwners();
-  const threshold = await protocolKit.getThreshold();
-  const nonce = await protocolKit.getNonce();
+  const owners = await protocolKitConnected.getOwners();
+  const threshold = await protocolKitConnected.getThreshold();
+  const nonce = await protocolKitConnected.getNonce();
 
   console.log(`   Owners: ${owners.length}`);
   owners.forEach((owner, i) => {
@@ -130,13 +153,14 @@ async function fullSafeWorkflow() {
   // Step 4: Create Safe transaction
   console.log('📋 Step 4: Creating Safe Transaction\n');
 
-  const recipientAddress = ownerAddress; // Send to self as example
+  // IMPORTANT: Protocol Kit needs 0x addresses for EIP-712 signing
+  const recipientAddressHex = tronAddressTo0x(tw, ownerAddress)!;
   const amount = '1000000'; // 1 TRX = 1,000,000 SUN
 
-  const safeTransaction = await protocolKit.createTransaction({
+  const safeTransaction = await protocolKitConnected.createTransaction({
     transactions: [
       {
-        to: recipientAddress,
+        to: recipientAddressHex, // Must be 0x format!
         value: amount,
         data: '0x',
       },
@@ -151,8 +175,8 @@ async function fullSafeWorkflow() {
   // Step 5: Sign transaction
   console.log('📋 Step 5: Signing Transaction\n');
 
-  const signedTransaction = await protocolKit.signTransaction(safeTransaction);
-  const safeTxHash = await protocolKit.getTransactionHash(signedTransaction);
+  const signedTransaction = await protocolKitConnected.signTransaction(safeTransaction);
+  const safeTxHash = await protocolKitConnected.getTransactionHash(signedTransaction);
 
   console.log(`   ✅ Transaction signed`);
   console.log(`   Signatures: ${signedTransaction.signatures.size}`);
@@ -163,7 +187,7 @@ async function fullSafeWorkflow() {
 
   console.log('   Preparing execution...');
 
-  const executeTxResponse = await protocolKit.executeTransaction(signedTransaction);
+  const executeTxResponse = await protocolKitConnected.executeTransaction(signedTransaction);
 
   console.log(`   ✅ Execution transaction sent`);
   console.log(`   TX Hash: ${executeTxResponse.hash}`);
