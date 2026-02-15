@@ -57,10 +57,18 @@
   "homepage": "https://github.com/BOBER3r/viem-transport#readme",
   "dependencies": {
     "tronweb": "^6.0.4",
-    "viem": "^2.37.8",
-    "@safe-global/protocol-kit": "^6.1.1"
+    "viem": "^2.37.8"
+  },
+  "peerDependencies": {
+    "@safe-global/protocol-kit": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@safe-global/protocol-kit": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@safe-global/protocol-kit": "^6.1.1",
     "@safe-global/safe-ethers-lib": "^1.9.4",
     "@vitest/ui": "^3.2.4",
     "bottleneck": "^2.19.5",
